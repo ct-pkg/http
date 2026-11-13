@@ -1,5 +1,7 @@
 # http
 
+> **未立项，不作数；待提案分析、排期、立项、评审后重出。**
+
 `libcurl` easy handle 的 HTTP 客户端包。对外两个对象：`HttpRequest`（构造、配置、执行、
 `Drop` 清理）与 `HttpResponse`（只读结果）。
 
