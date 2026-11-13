@@ -1,0 +1,17 @@
+# http - the libcurl (easy handle) HTTP client package.
+#
+# OO surface: `HttpRequest` owns one easy handle; configuration methods return
+# the receiver, `post()` / `post_stream(cb, ud)` execute, `Drop` runs
+# `curl_easy_cleanup` + `curl_slist_free_all`. `HttpResponse` is read-only.
+#
+# Secure defaults: TLS verification on, redirects off. The package does no
+# connection pooling, retries, proxying or allow-listing.
+#
+# Requires the compiler line that ships static inherent methods
+# (`impl T { static T *new(); }`, Phase 34); a released ct that predates it
+# cannot compile this package.
+name = http
+version = 0.1.0
+licence = MIT
+ldflags = -lcurl
+requires = ct >= 0.34.0
