@@ -32,6 +32,28 @@ static char *dup_string(const char *s)
     return p;
 }
 
+/* Case-insensitive prefix test; no POSIX strncasecmp needed. */
+static int prefix_ci(const char *s, const char *prefix)
+{
+    while (*prefix != '\0') {
+        char a = *s;
+        if (a >= 'A' && a <= 'Z') {
+            a = (char)(a - 'A' + 'a');
+        }
+        if (a != *prefix) {
+            return 0;
+        }
+        s++;
+        prefix++;
+    }
+    return 1;
+}
+
+static int has_http_scheme(const char *url)
+{
+    return prefix_ci(url, "http://") || prefix_ci(url, "https://");
+}
+
 struct HttpRequest *http_request_new(const char *url)
 {
     if (url == NULL) {
@@ -54,8 +76,14 @@ struct HttpRequest *http_request_new(const char *url)
     r->body = NULL;
     r->body_len = 0;
     r->body_stage = 0;
+    if (!has_http_scheme(r->url)) {
+        r->local_error = HTTP_LOCAL_ERR_SCHEME;
+    }
     r->easy = curl_easy_init();
     if (r->easy != NULL) {
+        /* Belt and braces with the local scheme check: never leave the process. */
+        curl_easy_setopt((CURL *)r->easy, CURLOPT_PROTOCOLS_STR, "http,https");
+        curl_easy_setopt((CURL *)r->easy, CURLOPT_REDIR_PROTOCOLS_STR, "http,https");
         g_easy_init_count = g_easy_init_count + 1;
     }
     r->ops = &http_default_ops;

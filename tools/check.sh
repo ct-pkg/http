@@ -204,6 +204,7 @@ g3)
     bash "$pkg/test/run.sh" p3-url-own || fail "p3-url-own"
     bash "$pkg/test/run.sh" p3-header-crlf || fail "p3-header-crlf"
     bash "$pkg/test/run.sh" p3-body-nul || fail "p3-body-nul"
+    bash "$pkg/test/run.sh" p3-scheme || fail "p3-scheme"
     printf 'ok g3 (abi, chain, variable landing, negative import, shim lifecycle, release, response ownership, ops, request config)\n'
     ;;
 g2 | g4 | g5 | g6 | g7 | g8 | g9)

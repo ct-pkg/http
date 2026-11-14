@@ -43,6 +43,7 @@ struct HttpRequest {
  */
 #define HTTP_LOCAL_ERR_HEADER (-1002)
 #define HTTP_LOCAL_ERR_BODY (-1003)
+#define HTTP_LOCAL_ERR_SCHEME (-1004)
 
 struct HttpResponse {
     int status;
