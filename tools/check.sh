@@ -200,7 +200,8 @@ g3)
     bash "$pkg/test/run.sh" p2-double-free || fail "p2-double-free"
     bash "$pkg/test/run.sh" p2-after-send || fail "p2-after-send"
     bash "$pkg/test/run.sh" p2-response-free || fail "p2-response-free"
-    printf 'ok g3 (abi, chain, variable landing, negative import, shim lifecycle, release, response ownership)\n'
+    bash "$pkg/test/run.sh" p2-ops || fail "p2-ops"
+    printf 'ok g3 (abi, chain, variable landing, negative import, shim lifecycle, release, response ownership, ops)\n'
     ;;
 g2 | g4 | g5 | g6 | g7 | g8 | g9)
     printf '%s: not implemented yet (see docs/phases/PH-1/card.md)\n' "$gate" >&2

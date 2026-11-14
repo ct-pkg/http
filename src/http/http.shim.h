@@ -10,11 +10,24 @@
 
 #include <stdlib.h>
 
+struct HttpRequest;
+struct HttpResponse;
+
+/*
+ * Runtime replacement seam: the request carries its ops table as a field, so
+ * a test or phase 4 can install a different send without touching the CT
+ * call point or the mapping unit.
+ */
+struct HttpRequestOps {
+    struct HttpResponse *(*send)(struct HttpRequest *r);
+};
+
 struct HttpRequest {
     char *url;        /* borrowed until phase 3 takes ownership */
     int headers;
     int timeout_ms;
     void *easy;       /* CURL *; opaque so this header stays curl-free */
+    const struct HttpRequestOps *ops;
 };
 
 struct HttpResponse {
@@ -31,6 +44,9 @@ struct HttpRequest *http_request_timeout(struct HttpRequest *r, int ms);
 
 /* Execution (still a fixed-value stub until phase 4). */
 struct HttpResponse *http_request_send(struct HttpRequest *r);
+
+/* Replace the ops table; NULL or a NULL ops field falls back to the default. */
+void http_request_set_ops(struct HttpRequest *r, const struct HttpRequestOps *ops);
 
 /* Read-only response view. */
 int http_response_status(struct HttpResponse *r);

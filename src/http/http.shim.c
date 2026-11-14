@@ -9,6 +9,9 @@ static int g_easy_cleanup_count = 0;
 static int g_response_free_count = 0;
 static int g_curl_global_ready = 0;
 
+static struct HttpResponse *stub_send(struct HttpRequest *r);
+static const struct HttpRequestOps http_default_ops = { stub_send };
+
 static void ensure_curl_global(void)
 {
     if (!g_curl_global_ready) {
@@ -43,6 +46,7 @@ struct HttpRequest *http_request_new(const char *url)
     if (r->easy != NULL) {
         g_easy_init_count = g_easy_init_count + 1;
     }
+    r->ops = &http_default_ops;
     return r;
 }
 
@@ -63,7 +67,7 @@ struct HttpRequest *http_request_timeout(struct HttpRequest *r, int ms)
 }
 
 /* Stub: returns a fixed response. Phase 4 replaces this with perform(). */
-struct HttpResponse *http_request_send(struct HttpRequest *r)
+static struct HttpResponse *stub_send(struct HttpRequest *r)
 {
     struct HttpResponse *resp = (struct HttpResponse *)malloc(sizeof(struct HttpResponse));
     if (resp == NULL) {
@@ -77,6 +81,21 @@ struct HttpResponse *http_request_send(struct HttpRequest *r)
         resp->body = dup_string("{\"users\":3}");
     }
     return resp;
+}
+
+/* Dispatch through the struct field: no vtable lookup, one indirect call. */
+struct HttpResponse *http_request_send(struct HttpRequest *r)
+{
+    const struct HttpRequestOps *ops = r->ops != NULL ? r->ops : &http_default_ops;
+    return ops->send(r);
+}
+
+void http_request_set_ops(struct HttpRequest *r, const struct HttpRequestOps *ops)
+{
+    if (r == NULL) {
+        return;
+    }
+    r->ops = ops != NULL ? ops : &http_default_ops;
 }
 
 int http_response_status(struct HttpResponse *r) { return r->status; }
