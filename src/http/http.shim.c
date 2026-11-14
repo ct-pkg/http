@@ -560,11 +560,105 @@ static struct HttpResponse *real_send(struct HttpRequest *r)
     return resp;
 }
 
+/* Streaming sink: the response buffer stays empty; cb sees each arrival. */
+struct StreamSink {
+    HttpChunkCb cb;
+    void *ud;
+    size_t delivered;
+};
+
+static size_t stream_write_cb(char *ptr, size_t size, size_t nmemb, void *ud)
+{
+    struct StreamSink *s = (struct StreamSink *)ud;
+    size_t n = size * nmemb;
+    if (n == 0) {
+        return 0;
+    }
+    if (s->cb != NULL) {
+        /* Phase 7 T1 delivers; T2 turns a non-zero return into an abort. */
+        (void)s->cb(ptr, (int)n, s->ud);
+    }
+    s->delivered = s->delivered + n;
+    return n;
+}
+
+static struct HttpResponse *real_send_stream(struct HttpRequest *r,
+                                             HttpChunkCb cb,
+                                             void *ud)
+{
+    struct HttpResponse *resp = (struct HttpResponse *)malloc(sizeof(struct HttpResponse));
+    if (resp == NULL) {
+        return NULL;
+    }
+    resp->status = 0;
+    resp->body = NULL;
+    resp->body_len = 0;
+    resp->total_bytes = 0;
+    resp->error = 0;
+    resp->error_msg = NULL;
+    resp->error_detail = NULL;
+    resp->cancelled = 0;
+    resp->timeout_kind = HTTP_TIMEOUT_NONE;
+    g_last_curl_code = 0;
+
+    if (r->local_error != 0 || r->easy == NULL) {
+        int local = r->local_error != 0 ? r->local_error : HTTP_LOCAL_ERR_NO_HANDLE;
+        resp->error = local;
+        resp->error_msg = make_error_msg(r->url != NULL ? r->url : "", local);
+        resp->error_detail =
+            make_error_detail(r->url != NULL ? r->url : "", local, HTTP_TIMEOUT_NONE);
+        return resp;
+    }
+
+    struct StreamSink sink;
+    sink.cb = cb;
+    sink.ud = ud;
+    sink.delivered = 0;
+
+    CURL *easy = (CURL *)r->easy;
+    curl_easy_setopt(easy, CURLOPT_URL, r->url);
+    curl_easy_setopt(easy, CURLOPT_WRITEFUNCTION, stream_write_cb);
+    curl_easy_setopt(easy, CURLOPT_WRITEDATA, &sink);
+    curl_easy_setopt(easy, CURLOPT_NOPROGRESS, 1L);
+
+    int transport;
+    if (g_injected_curl_code != 0) {
+        transport = g_injected_curl_code;
+    } else {
+        transport = (int)curl_easy_perform(easy);
+    }
+    g_last_curl_code = transport;
+
+    long code = 0;
+    if (g_injected_curl_code == 0) {
+        curl_easy_getinfo(easy, CURLINFO_RESPONSE_CODE, &code);
+    }
+    resp->status = (int)code;
+    resp->error = transport;
+    resp->total_bytes = (int)sink.delivered;
+    if (transport != 0) {
+        resp->error_msg = make_error_msg(r->url, transport);
+        resp->error_detail =
+            make_error_detail(r->url, transport, HTTP_TIMEOUT_NONE);
+    }
+    return resp;
+}
+
 /* Dispatch through the struct field: no vtable lookup, one indirect call. */
 struct HttpResponse *http_request_send(struct HttpRequest *r)
 {
     const struct HttpRequestOps *ops = r->ops != NULL ? r->ops : &http_default_ops;
     return ops->send(r);
+}
+
+struct HttpResponse *http_request_send_stream(struct HttpRequest *r,
+                                              HttpChunkCb cb,
+                                              void *ud)
+{
+    if (r == NULL) {
+        return NULL;
+    }
+    return real_send_stream(r, cb, ud);
 }
 
 void http_request_set_ops(struct HttpRequest *r, const struct HttpRequestOps *ops)

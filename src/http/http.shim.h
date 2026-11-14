@@ -14,6 +14,13 @@ struct HttpRequest;
 struct HttpResponse;
 
 /*
+ * Streaming response callback: data is borrowed for the duration of the call.
+ * Returning non-zero aborts the transfer. Keep a copy if the bytes must
+ * outlive the callback; the library never frees caller storage.
+ */
+typedef int (*HttpChunkCb)(char *data, int len, void *ud);
+
+/*
  * Runtime replacement seam: the request carries its ops table as a field, so
  * a test or phase 4 can install a different send without touching the CT
  * call point or the mapping unit.
@@ -90,6 +97,13 @@ struct HttpRequest *http_request_follow_redirects(struct HttpRequest *r, int on)
 
 /* Execution: one synchronous perform, still guarded by the local error. */
 struct HttpResponse *http_request_send(struct HttpRequest *r);
+
+/* Streaming execution: body bytes go to cb instead of the response buffer.
+   The response then has body()==NULL, body_len()==0; total_bytes() counts
+   the bytes handed to cb. */
+struct HttpResponse *http_request_send_stream(struct HttpRequest *r,
+                                              HttpChunkCb cb,
+                                              void *ud);
 
 /* Replace the ops table; NULL or a NULL ops field falls back to the default. */
 void http_request_set_ops(struct HttpRequest *r, const struct HttpRequestOps *ops);
