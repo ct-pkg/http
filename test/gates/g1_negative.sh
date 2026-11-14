@@ -5,7 +5,7 @@
 #   bash test/gates/g1_negative.sh
 #
 # A gate that cannot reject a broken card is not a gate. This self-test takes
-# three copies of the live card, breaks one rule in each, and requires
+# every live phase card, breaks one rule in each of three copies, and requires
 # `tools/check.sh g1` to exit 1 with a `FAIL g1` line every time.
 #
 # License: MIT (see LICENSE).
@@ -14,7 +14,6 @@ set -u
 
 here="$(cd "$(dirname "$0")" && pwd)"
 repo="$(cd "$here/../.." && pwd)"
-card="$repo/docs/phases/PH-1/card.md"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
@@ -24,9 +23,11 @@ fail() {
 }
 
 expect_reject() {
-    label="$1"
-    file="$2"
-    out="$tmp/$label.out"
+    local label="$1"
+    local file="$2"
+    local out
+    local rc
+    out="$tmp/$(printf '%s' "$label" | tr '/' '_').out"
 
     CARD_FILE="$file" bash "$repo/tools/check.sh" g1 >"$out" 2>&1
     rc=$?
@@ -41,22 +42,33 @@ expect_reject() {
     printf '  rejected %s: %s\n' "$label" "$(head -n 1 "$out")"
 }
 
-[ -f "$card" ] || fail "missing card: $card"
+found=0
+total=0
+for card in "$repo"/docs/phases/PH-*/card.md; do
+    [ -f "$card" ] || continue
+    found=1
+    local_label="$(basename "$(dirname "$card")")"
 
-# 1. change an exit criterion -> frozen digest must reject
-sed 's/^| E-P1-2 |/| E-P1-2 | tampered /' "$card" >"$tmp/criteria.md"
-# 2. mark a task with effort L -> schema must reject
-awk -F'|' 'BEGIN { OFS = "|" } /^\| T[0-9]+ / && !done { $7 = " L "; done = 1 } { print }' \
-    "$card" >"$tmp/effort.md"
-# 3. drop a required card item -> the ten-item check must reject
-grep -v '^## 9. 收口动作$' "$card" >"$tmp/missing.md"
+    # 1. change an exit criterion -> frozen digest must reject
+    awk '/^\| E-P[0-9]+-[0-9]+ / && !done { sub(/ \|[ \t]*$/, " tampered |"); done = 1 } { print }' \
+        "$card" >"$tmp/$local_label-criteria.md"
+    # 2. mark a task with effort L -> schema must reject
+    awk -F'|' 'BEGIN { OFS = "|" } /^\| T[0-9]+ / && !done { $7 = " L "; done = 1 } { print }' \
+        "$card" >"$tmp/$local_label-effort.md"
+    # 3. drop a required card item -> the ten-item check must reject
+    grep -v '^## 9. 收口动作$' "$card" >"$tmp/$local_label-missing.md"
 
-grep -q '^| E-P1-2 | tampered ' "$tmp/criteria.md" || fail "could not build the criteria tamper case"
-grep -q '| L |' "$tmp/effort.md" || fail "could not build the effort tamper case"
-grep -q '^## 9. 收口动作$' "$tmp/missing.md" && fail "could not build the missing-item case"
+    grep -q ' tampered |' "$tmp/$local_label-criteria.md" || fail "$local_label: could not build the criteria tamper case"
+    grep -q '| L |' "$tmp/$local_label-effort.md" || fail "$local_label: could not build the effort tamper case"
+    grep -q '^## 9. 收口动作$' "$tmp/$local_label-missing.md" && fail "$local_label: could not build the missing-item case"
 
-expect_reject criteria "$tmp/criteria.md"
-expect_reject effort "$tmp/effort.md"
-expect_reject missing "$tmp/missing.md"
+    expect_reject "$local_label/criteria" "$tmp/$local_label-criteria.md"
+    expect_reject "$local_label/effort" "$tmp/$local_label-effort.md"
+    expect_reject "$local_label/missing" "$tmp/$local_label-missing.md"
+    total=$((total + 3))
+done
 
-printf 'ok g1-negative (3 tampered cards rejected)\n'
+[ "$found" -eq 1 ] || fail "no docs/phases/PH-*/card.md"
+[ "$total" -gt 0 ] || fail "no tampered card was exercised"
+
+printf 'ok g1-negative (%d tampered cards rejected)\n' "$total"

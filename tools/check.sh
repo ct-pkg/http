@@ -87,19 +87,25 @@ check_card() {
     crit="$(section '## 5. 退出判据（冻结）' "$card")"
     printf '%s\n' "$crit" | grep -qF '任务清单每项可独立验收（6.6 T-6）' \
         || fail "$card: exit criteria must include '任务清单每项可独立验收（6.6 T-6）'"
-    printf '%s\n' "$crit" | awk -F'|' '
-        /^\| E-P1-[0-9]+ / {
+    # Criteria are namespaced by the card's own PH number: PH-2 uses E-P2-*.
+    printf '%s\n' "$crit" | awk -F'|' -v pre="E-P$n-" '
+        /^\| E-P[0-9]+-[0-9]+ / {
             n++
+            id = $2; gsub(/^[ \t]+|[ \t]+$/, "", id)
+            if (index(id, pre) != 1) {
+                printf "criterion %s does not use the card prefix %s\n", id, pre > "/dev/stderr"
+                bad = 1
+            }
             if ($0 !~ /`/) { print "criterion without a command anchor: " $0 > "/dev/stderr"; bad = 1 }
         }
         END {
-            if (n < 3) { print "need at least 3 E-P1 exit criteria, got " n > "/dev/stderr"; bad = 1 }
+            if (n < 3) { printf "need at least 3 %s exit criteria, got %d\n", pre, n > "/dev/stderr"; bad = 1 }
             if (bad) exit 1
         }
     ' || fail "$card: exit criteria rows invalid"
 
     tasks="$(section '## 4. 任务清单' "$card")"
-    printf '%s\n' "$tasks" | awk -F'|' '
+    printf '%s\n' "$tasks" | awk -F'|' -v pn="$n" '
         /^\| T[0-9]+ / {
             n++
             cnt = 0
@@ -114,8 +120,8 @@ check_card() {
                 bad = 1
             }
             cover = $8; gsub(/^[ \t]+|[ \t]+$/, "", cover)
-            if (cover !~ /E-P1-[0-9]+/) {
-                printf "task %s must name the exit criterion it covers\n", $2 > "/dev/stderr"
+            if (cover !~ ("E-P" pn "-[0-9]+")) {
+                printf "task %s must name the exit criterion it covers (E-P%s-<n>)\n", $2, pn > "/dev/stderr"
                 bad = 1
             }
         }
