@@ -628,6 +628,7 @@ struct StreamSink {
     size_t max;
     int limit_fired;
     int aborted;
+    struct XferState xfer;
 };
 
 static size_t stream_write_cb(char *ptr, size_t size, size_t nmemb, void *ud)
@@ -645,11 +646,15 @@ static size_t stream_write_cb(char *ptr, size_t size, size_t nmemb, void *ud)
             if (s->cb != NULL && s->cb(ptr, (int)keep, s->ud) != 0) {
                 s->aborted = 1;
             }
+            s->xfer.last_us = now_us();
+            s->xfer.first_byte = 1;
         }
         return 0;
     }
     /* Count before the call: the chunk was handed over even if it aborts. */
     s->delivered = s->delivered + n;
+    s->xfer.last_us = now_us();
+    s->xfer.first_byte = 1;
     if (s->cb != NULL && s->cb(ptr, (int)n, s->ud) != 0) {
         s->aborted = 1;
         return 0; /* libcurl reports CURLE_WRITE_ERROR(23) */
@@ -692,12 +697,22 @@ static struct HttpResponse *real_send_stream(struct HttpRequest *r,
     sink.max = r->max_body_bytes > 0 ? (size_t)r->max_body_bytes : 0;
     sink.limit_fired = 0;
     sink.aborted = 0;
+    sink.xfer.last_us = now_us();
+    sink.xfer.idle_ms = r->idle_timeout_ms;
+    sink.xfer.first_byte = 0;
+    sink.xfer.idle_fired = 0;
 
     CURL *easy = (CURL *)r->easy;
     curl_easy_setopt(easy, CURLOPT_URL, r->url);
     curl_easy_setopt(easy, CURLOPT_WRITEFUNCTION, stream_write_cb);
     curl_easy_setopt(easy, CURLOPT_WRITEDATA, &sink);
-    curl_easy_setopt(easy, CURLOPT_NOPROGRESS, 1L);
+    if (r->idle_timeout_ms > 0) {
+        curl_easy_setopt(easy, CURLOPT_NOPROGRESS, 0L);
+        curl_easy_setopt(easy, CURLOPT_XFERINFOFUNCTION, xfer_cb);
+        curl_easy_setopt(easy, CURLOPT_XFERINFODATA, &sink.xfer);
+    } else {
+        curl_easy_setopt(easy, CURLOPT_NOPROGRESS, 1L);
+    }
 
     int transport;
     if (g_injected_curl_code != 0) {
@@ -716,6 +731,9 @@ static struct HttpResponse *real_send_stream(struct HttpRequest *r,
         resp->error = (int)CURLE_WRITE_ERROR;
     } else if (sink.limit_fired) {
         resp->error = HTTP_LOCAL_ERR_BODY_LIMIT;
+    } else if (sink.xfer.idle_fired) {
+        resp->error = (int)CURLE_OPERATION_TIMEDOUT;
+        resp->timeout_kind = HTTP_TIMEOUT_IDLE;
     } else {
         resp->error = transport;
     }
@@ -723,7 +741,7 @@ static struct HttpResponse *real_send_stream(struct HttpRequest *r,
     if (resp->error != 0) {
         resp->error_msg = make_error_msg(r->url, resp->error);
         resp->error_detail = make_error_detail(
-            r->url, resp->error, HTTP_TIMEOUT_NONE,
+            r->url, resp->error, resp->timeout_kind,
             resp->error == HTTP_LOCAL_ERR_BODY_LIMIT ? (int)sink.max : 0);
     }
     return resp;

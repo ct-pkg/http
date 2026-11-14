@@ -49,6 +49,17 @@ int main(void)
     http_response_free(&sres);
     http_request_free(&sreq);
 
+    /*
+     * The fixture server serves one connection at a time; the first /stall2
+     * child is still sleeping. Restart it so the second request sees its
+     * first byte immediately instead of an idle gap in the accept queue.
+     */
+    p4_server_stop();
+    if (p4_server_start() != 0) {
+        printf("server failed\n");
+        return 1;
+    }
+
     struct HttpRequest *preq = http_request_new(p4_server_url("/stall2"));
     http_request_idle_timeout(preq, 500);
     http_request_timeout(preq, 5000);
