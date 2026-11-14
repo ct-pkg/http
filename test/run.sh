@@ -278,6 +278,9 @@ p6-slow)
 p6-idle)
     run_cc_server
     ;;
+p6-negative)
+    run_cc_server
+    ;;
 phase1_no_mapping)
     run_negative
     ;;
