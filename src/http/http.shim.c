@@ -1,8 +1,10 @@
 #include "http.shim.h"
 
 #include <curl/curl.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/time.h>
 
 /* Process-local state: each fixture runs in its own process. */
 static int g_easy_init_count = 0;
@@ -359,6 +361,14 @@ static char *make_error_detail(const char *url, int code, int kind)
     return dup_string(buf);
 }
 
+/* Wall clock in microseconds: short-lived transfers, only differences matter. */
+static int64_t now_us(void)
+{
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return (int64_t)tv.tv_sec * 1000000 + (int64_t)tv.tv_usec;
+}
+
 /* Growable response buffer filled by the write callback. */
 struct BodyBuf {
     char *data;
@@ -435,11 +445,13 @@ static struct HttpResponse *real_send(struct HttpRequest *r)
     curl_easy_setopt(easy, CURLOPT_WRITEDATA, &buf);
 
     int transport;
+    int64_t started_us = now_us();
     if (g_injected_curl_code != 0) {
         transport = g_injected_curl_code; /* test seam: no transfer at all */
     } else {
         transport = (int)curl_easy_perform(easy);
     }
+    int64_t elapsed_us = now_us() - started_us;
     g_last_curl_code = transport;
 
     long code = 0;
@@ -448,9 +460,23 @@ static struct HttpResponse *real_send(struct HttpRequest *r)
     }
     resp->status = (int)code;
     resp->error = transport;
-    /* A bare 28 says "timed out", never which limit. Phase 6 names it. */
+    /*
+     * A bare 28 says "timed out", never which limit. Judge at the point the
+     * transfer returns: if libcurl never completed the connection and the
+     * configured connect limit has elapsed, the connect phase ran out; any
+     * other 28 is the total limit.
+     */
     if (transport == (int)CURLE_OPERATION_TIMEDOUT) {
-        resp->timeout_kind = HTTP_TIMEOUT_TOTAL;
+        curl_off_t connect_us = 0;
+        if (g_injected_curl_code == 0) {
+            curl_easy_getinfo(easy, CURLINFO_CONNECT_TIME_T, &connect_us);
+        }
+        if (connect_us == 0 && r->connect_timeout_ms > 0
+            && elapsed_us >= (int64_t)r->connect_timeout_ms * 1000) {
+            resp->timeout_kind = HTTP_TIMEOUT_CONNECT;
+        } else {
+            resp->timeout_kind = HTTP_TIMEOUT_TOTAL;
+        }
     }
     resp->body = buf.data != NULL ? buf.data : dup_string("");
     resp->body_len = (int)buf.len;
