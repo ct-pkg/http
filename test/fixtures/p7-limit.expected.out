@@ -1,0 +1,2 @@
+nstream error -1008 body_len 1024 total 1024 take 1024 ok 0
+stream error -1008 body_len 0 total 1024 cb 1024 ok 0

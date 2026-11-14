@@ -290,6 +290,9 @@ p7-body-nul | p7-chunked)
 p7-abort)
     run_cc_server
     ;;
+p7-limit)
+    run_asan_positive_server
+    ;;
 phase1_no_mapping)
     run_negative
     ;;
