@@ -24,10 +24,11 @@ pub trait RequestBuilder {
     void free();
 }
 
-/* Layer 3: the response is a read-only view. */
+/* Layer 3: the response is a read-only view with its own terminal release. */
 pub trait ResponseView {
     int status();
     char *body();
+    void free();
 }
 
 map trait HttpEntry for type char * {
@@ -44,4 +45,5 @@ map trait RequestBuilder for type CRequest * {
 map trait ResponseView for type CResponse * {
     status(r) -> http_response_status(r);
     body(r)   -> http_response_body(r);
+    free(r)   -> http_response_release(r);
 }

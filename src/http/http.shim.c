@@ -6,6 +6,7 @@
 /* Process-local state: each fixture runs in its own process. */
 static int g_easy_init_count = 0;
 static int g_easy_cleanup_count = 0;
+static int g_response_free_count = 0;
 static int g_curl_global_ready = 0;
 
 static void ensure_curl_global(void)
@@ -114,5 +115,33 @@ void http_request_release(struct HttpRequest *r)
     http_request_free(&r);
 }
 
+/* The response owns its body: release frees both the buffer and the struct. */
+static void response_destroy(struct HttpResponse *r)
+{
+    if (r == NULL) {
+        return;
+    }
+    free(r->body);
+    r->body = NULL;
+    g_response_free_count = g_response_free_count + 1;
+    free(r);
+}
+
+void http_response_free(struct HttpResponse **slot)
+{
+    if (slot == NULL || *slot == NULL) {
+        return;
+    }
+    struct HttpResponse *r = *slot;
+    *slot = NULL;
+    response_destroy(r);
+}
+
+void http_response_release(struct HttpResponse *r)
+{
+    http_response_free(&r);
+}
+
 int http_shim_easy_init_count(void) { return g_easy_init_count; }
 int http_shim_easy_cleanup_count(void) { return g_easy_cleanup_count; }
+int http_shim_response_free_count(void) { return g_response_free_count; }

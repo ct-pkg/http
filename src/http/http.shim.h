@@ -45,9 +45,12 @@ char *http_response_body(struct HttpResponse *r);
  */
 void http_request_free(struct HttpRequest **slot);
 void http_request_release(struct HttpRequest *r);
+void http_response_free(struct HttpResponse **slot);
+void http_response_release(struct HttpResponse *r);
 
 /* Test hooks: process-local counters, reset by starting a new process. */
 int http_shim_easy_init_count(void);
 int http_shim_easy_cleanup_count(void);
+int http_shim_response_free_count(void);
 
 #endif
