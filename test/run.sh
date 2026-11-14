@@ -156,6 +156,9 @@ p3-url-own)
 p3-header-crlf)
     run_cc
     ;;
+p3-body-nul)
+    run_cc
+    ;;
 phase1_no_mapping)
     run_negative
     ;;
