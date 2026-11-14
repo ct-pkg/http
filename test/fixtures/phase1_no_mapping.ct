@@ -1,0 +1,12 @@
+import http::Types;
+
+/*
+ * Negative fixture: importing only the type/constant unit must not bring the
+ * methods. `post` lives on the mapping unit `http::http`.
+ */
+
+int main(void)
+{
+    int status = "https://api.example.com/users"->post();
+    return status;
+}
