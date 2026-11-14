@@ -162,6 +162,9 @@ p3-body-nul)
 p3-scheme)
     run_cc
     ;;
+p3-defaults)
+    run_cc
+    ;;
 phase1_no_mapping)
     run_negative
     ;;
