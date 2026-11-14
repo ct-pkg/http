@@ -107,6 +107,9 @@ int http_shim_easy_init_count(void);
 int http_shim_easy_cleanup_count(void);
 int http_shim_response_free_count(void);
 
+/* Test hook: raw CURLcode of the last send (0 = none, 28 = timed out). */
+int http_shim_last_curl_code(void);
+
 /* Test hook: the index-th accepted header as "Name: value", NULL past the end. */
 const char *http_shim_header_line(struct HttpRequest *r, int index);
 

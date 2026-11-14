@@ -8,6 +8,7 @@ static int g_easy_init_count = 0;
 static int g_easy_cleanup_count = 0;
 static int g_response_free_count = 0;
 static int g_curl_global_ready = 0;
+static int g_last_curl_code = 0;
 
 static struct HttpResponse *real_send(struct HttpRequest *r);
 static const struct HttpRequestOps http_default_ops = { real_send };
@@ -332,6 +333,7 @@ static struct HttpResponse *real_send(struct HttpRequest *r)
     resp->body = NULL;
     resp->body_len = 0;
     resp->total_bytes = 0;
+    g_last_curl_code = 0;
 
     /* A locally rejected request never leaves the process. */
     if (r->local_error != 0 || r->easy == NULL) {
@@ -348,7 +350,7 @@ static struct HttpResponse *real_send(struct HttpRequest *r)
     curl_easy_setopt(easy, CURLOPT_URL, r->url);
     curl_easy_setopt(easy, CURLOPT_WRITEFUNCTION, write_cb);
     curl_easy_setopt(easy, CURLOPT_WRITEDATA, &buf);
-    curl_easy_perform(easy);
+    g_last_curl_code = (int)curl_easy_perform(easy);
 
     long code = 0;
     curl_easy_getinfo(easy, CURLINFO_RESPONSE_CODE, &code);
@@ -467,6 +469,13 @@ void http_response_release(struct HttpResponse *r)
 int http_shim_easy_init_count(void) { return g_easy_init_count; }
 int http_shim_easy_cleanup_count(void) { return g_easy_cleanup_count; }
 int http_shim_response_free_count(void) { return g_response_free_count; }
+
+/*
+ * The raw CURLcode of the last send, 0 when nothing was performed. A test
+ * hook only: the public error surface is still undecided (S-05, phase 5).
+ * Note that connect and total timeouts both surface as 28 here.
+ */
+int http_shim_last_curl_code(void) { return g_last_curl_code; }
 
 const char *http_shim_header_line(struct HttpRequest *r, int index)
 {
