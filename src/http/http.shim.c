@@ -184,13 +184,19 @@ struct HttpRequest *http_request_timeout(struct HttpRequest *r, int ms)
 
 /*
  * Idle is data-gap based, not average-speed based: a stream that keeps sending
- * slowly must never be killed for being slow. A negative ms becomes a local
- * error in PH6-T5; until then it simply behaves as "no limit".
+ * slowly must never be killed for being slow. A negative ms is a local error
+ * here, same code as a negative total timeout.
  */
 struct HttpRequest *http_request_idle_timeout(struct HttpRequest *r, int ms)
 {
     if (r == NULL) {
         return NULL;
+    }
+    if (ms < 0) {
+        if (r->local_error == 0) {
+            r->local_error = HTTP_LOCAL_ERR_TIMEOUT;
+        }
+        return r;
     }
     r->idle_timeout_ms = ms;
     return r;
