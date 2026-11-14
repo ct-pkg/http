@@ -293,7 +293,7 @@ p7-abort)
 p7-limit)
     run_asan_positive_server
     ;;
-p7-idle)
+p7-idle | p7-slow)
     run_cc_server
     ;;
 p7-mutex)

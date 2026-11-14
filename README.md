@@ -3,12 +3,12 @@
 `libcurl` easy handle 的 HTTP 客户端包。对外是链式接口：字符串起手，请求对象承载配置，
 响应对象只读。
 
-- 版本：0.1.0（phase 6：三种超时区分与慢流保护）
+- 版本：0.1.0（phase 7：流式执行与慢流保护）
 - 许可：MIT（`.ct` / shim / 测试）+ curl 原许可（链接的系统 libcurl）
 - 平台：macOS 与 Linux 的系统 libcurl
 - 规划：[0.1.0 roadmap](docs/planning/ct-http-0.1.0-roadmap.md)、
   [feature 划分](docs/planning/ct-http-0.1.0-features.md)
-- 当前 phase 卡：[PH-6](docs/phases/PH-6/card.md)
+- 当前 phase 卡：[PH-7](docs/phases/PH-7/card.md)
 - 设计稿：[docs/design.md](docs/design.md)
 
 > **`send()` 真的发请求**：phase 4 起 shim 调用 `curl_easy_perform`，状态码与 body
@@ -59,6 +59,7 @@ req->free();
 | `timeout(ms)` | 总超时；负值本地拒绝 | 不设（`0`） |
 | `connect_timeout(ms)` | 连接超时；负值本地拒绝 | 不设（`0`） |
 | `idle_timeout(ms)` | 数据空档上限（首字节前也算空档）；负值本地拒绝 | 不设（`0`） |
+| `max_body_bytes(n)` | 响应体上限；累计到 `n` 立即中止并报 `-1008` | 不限（`0`） |
 | `body(data, len)` | 上传体；按 `len` 深拷贝，先 `POSTFIELDSIZE` 后 `COPYPOSTFIELDS` | 无 |
 | `user_agent(ua)` | User-Agent | `ct-http/0.1.0` |
 | `insecure(on)` | `1` 时同时关 `VERIFYPEER` 与 `VERIFYHOST` | `0`（校验开） |
@@ -66,7 +67,7 @@ req->free();
 
 - 只接受 `http://` 与 `https://`（大小写不敏感）；其余 scheme 在工厂返回时就带本地
   负数码，easy handle 另设 `CURLOPT_PROTOCOLS_STR=http,https` 兜底。
-- 本地校验码是 `http.shim.h` 的宏（`HTTP_LOCAL_ERR_*`，-1001…-1006），**是公开错误面**
+- 本地校验码是 `http.shim.h` 的宏（`HTTP_LOCAL_ERR_*`，-1001…-1008），**是公开错误面**
   的一部分：0 表示无错，正数是 `CURLcode` 原值，负数是本地拒绝。S-05 已裁定不引入
   `HTTP_ERR_*` 枚举——错误集还会增长，枚举会让每次扩展都变成对所有全写 `switch`
   的源码破坏。
@@ -79,21 +80,23 @@ req->free();
 | 方法 | 作用 |
 | --- | --- |
 | `status()` | HTTP 状态码；传输失败时为 `0` |
-| `body()` | 响应体首地址；NUL 结尾，但长度只认 `body_len()` |
-| `body_len()` | 响应体字节数，内嵌 NUL 不截断 |
-| `total_bytes()` | write 回调累计字节，与 `body_len()` 同源 |
+| `body()` | 响应体首地址；NUL 结尾，长度只认 `body_len()`；流式恒为 `NULL` |
+| `body_len()` | 响应体字节数，内嵌 NUL 不截断；流式恒为 `0` |
+| `total_bytes()` | 实际交付给缓冲或回调的响应体字节数；上限命中时等于上限 |
 | `error()` | 0 = 无错；正数 = `CURLcode` 原值；负数 = 本地拒绝 |
 | `error_msg()` | `"<阶段>: <主机> (code N)"`，无错时为空串 |
-| `error_detail()` | `"code=N stage=S host=H"`，同一输入可复现 |
+| `error_detail()` | `"code=N stage=S host=H"`，同一输入可复现；超时多 `phase=`，上限多 `limit=` |
 | `is_ok()` | 2xx 且 `error()==0` 且未取消 |
-| `is_cancelled()` | 取消位；phase 5 没有取消路径，恒为 `0` |
-| `take_body()` | 取走 body：响应侧置空、`body_len()` 归零，调用方负责 `free` 一次 |
+| `is_cancelled()` | 取消位；0.1.0 没有取消路径，恒为 `0` |
+| `take_body()` | 取走 body：响应侧置空、`body_len()` 归零，调用方负责 `free` 一次；流式返回 `NULL` |
 | `free()` | 释放响应；`take_body()` 之后不再持有 body |
 
 - **`take_body` 是所有权转移，不是借用**：取走后原响应的 `free()` 不会重复释放
   （ASAN 正例 `p4-take-body`，负例 `p4-take-body-bad` 证明断言不是空转）。
 - **超时边界**：libcurl 只给一个 `CURLE_OPERATION_TIMEDOUT`(28)；连接 / 总时长 /
   空闲的区分由 shim 自己记录，见下方「超时（phase 6）」。
+- **流式边界**：`send_stream` 不填响应体；字节只经回调交付，所有权与上限见
+  「流式（phase 7）」。
 - **失败码**：`http_shim_last_curl_code()` 只是测试钩子；调用方读 `error()`。
 - **响应头读取不在 phase 4**：属待裁定项（S-01），即使实现成本只有约 1 个任务
   （header 回调 + 存储 + 查询）也未加入。
@@ -147,6 +150,21 @@ int main(void)
   是构造保证。取消后 `send()` 的返回值要等 phase 8 的 `cancel()` 落地才能实测；本 phase
   只能证明同一份 `status/error` 下置位取消会让 `is_ok()` 翻转。
 
+## 流式（phase 7）
+
+`send_stream(cb, ud)` 按到达顺序交付响应体，不回填 `body()`；通常写作
+`req->max_body_bytes(1048576)->send_stream(on_chunk, &sink)`。
+
+- 回调拿到的 `data` 只在本次调用内有效；跨回调保留必须自行复制，库不释放调用方内存。
+- 返回非 0 → `error()==23`、`is_cancelled()==0`；无回调读 `-1001`，混用
+  `send`/`send_stream` 读 `-1007`。
+- `max_body_bytes(n)`：达到 `n` 立即中止并报 `-1008`；`total_bytes()` 等于 `n`，非流式保留
+  前 `n` 字节并可 `take_body`，流式已交付前缀归回调。
+- 请求体与流式响应可共存；chunked / 无 `Content-Length` 由 libcurl 解码后交付。
+- 流式读中 `idle_timeout` 生效：中止读 `28/3`，已交付字节归回调，`take_body()` 为 `NULL`；
+  非流式保留已收前缀。
+- 完整示例与所有权说明见 [docs/streaming.md](docs/streaming.md)。
+
 ## 超时（phase 6）
 
 `timeout_kind()` 是纯查询，不额外分配；成功路径恒为 `0`：
@@ -190,7 +208,9 @@ int main(void)
   连接超时用 `CURLINFO_CONNECT_TIME_T`（微秒）作为「握手没完成」的硬证据。
 - **精度**：连接 / 总时长是 libcurl 自己的计时，亚毫秒级；空闲是进度回调粒度，
   实测约 **1 秒**一次，因此 `idle_timeout(500)` 实际在 ~1.0–1.1 秒中止，
-  误差上限约为一个回调周期。
+  误差上限约为一个回调周期（IDLE 精度约 1 秒）。**配小于 1 秒的值不保证按值中止**。
+- **没有独立低速下限**：放弃 `LOW_SPEED_LIMIT` 后，持续有数据但整体极慢的流只在设置了
+  `idle_timeout` 时才受约束；未设置时库不会因为它“平均很慢”而中止。
 - **可能误判**：`timeout_kind==2` 是「28 且非连接超时」的兜底，它不区分「首字节前
   耗尽总时长」和「传了一半耗尽总时长」——两者都是总时长，对外语义一致；对
   `CURLINFO_CONNECT_TIME_T==0` 但实际已连上的极端情况（libcurl 未填该信息）会落到
@@ -250,8 +270,8 @@ r->free();
 
 只做“发一个请求并读回结果”这条最短路径：
 
-- 进：URL、请求头、body、超时、connect 超时、User-Agent、重定向开关、TLS 校验开关；
-  `post()`；`post_stream(cb, ud)`；`cancel()`；状态码、body、错误码、错误文案、总字节数。
+- 进：URL、请求头、body、总/连接/空闲超时、响应体上限、User-Agent、重定向开关、TLS 校验开关；
+  `post()`；`send_stream(cb, ud)`；`cancel()`；状态码、body、错误码、错误文案、总字节数。
 - 不进：连接池、重试、代理、白名单；`multi`（异步状态机）、`share`、`mime`、`form`、
   WebSocket、`urlapi`；JSON 编解码（用 `json` 包）。
 - 安全默认：TLS 校验开、重定向关。
@@ -272,7 +292,7 @@ ct install
 ```sh
 bash tools/check.sh g0     # 规约纳管：spec 块 + 实例化表 + session-map + 版本落点
 bash tools/check.sh g1     # 卡片十项 + 任务七列 + 判据/任务摘要冻结
-bash tools/check.sh g3     # 夹具构建 + 运行 + 负例 + 生命周期/释放 + 配置面 + 真执行响应面 + 超时区分
+bash tools/check.sh g3     # 夹具构建 + 运行 + 负例 + 生命周期/释放 + 配置面 + 真执行响应面 + 超时区分 + 流式
 bash test/gates/g1_negative.sh   # 证明 g1 会拒绝篡改卡
 ```
 

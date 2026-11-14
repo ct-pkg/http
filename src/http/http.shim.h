@@ -45,7 +45,10 @@ struct HttpRequest {
     int connect_timeout_ms;
     int insecure;         /* 0 = verify peer/host, the default */
     int follow_redirects; /* 0 = do not follow, the default */
-    int idle_timeout_ms;  /* 0 = no idle limit; gap since the last data byte */
+    int idle_timeout_ms;  /* 0 = no idle limit; gap since the last data byte.
+                             Precision is the progress-callback period (~1s),
+                             so values below 1000 ms are not guaranteed to
+                             fire at the configured value. */
     int max_body_bytes;   /* 0 = unlimited; reaching it aborts with -1008 */
     int mode;             /* 0 fresh, 1 send(), 2 send_stream(); mixing is -1007 */
     char *user_agent;     /* owned; defaults to HTTP_DEFAULT_USER_AGENT */
@@ -140,7 +143,10 @@ int http_response_is_ok(struct HttpResponse *r);
 /* Cancellation is a separate axis: is_ok() rules it out by construction. */
 int http_response_is_cancelled(struct HttpResponse *r);
 
-/* Which configured limit fired when error() is 28; HTTP_TIMEOUT_NONE otherwise. */
+/* Which configured limit fired when error() is 28; HTTP_TIMEOUT_NONE otherwise.
+   IDLE is data-gap based and has ~1s granularity: an idle_timeout below 1000 ms
+   is not guaranteed to abort at that value. A continuously-slow stream with no
+   idle_timeout is not bounded by any independent low-speed floor. */
 int http_response_timeout_kind(struct HttpResponse *r);
 
 /* Move the body out: the response stops owning it (body becomes NULL and
