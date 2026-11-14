@@ -46,6 +46,20 @@ run_ct() {
     printf 'ok %s\n' "$task"
 }
 
+run_negative() {
+    log="$tmp/$task.build.log"
+    (
+        cd "$tmp" || exit 1
+        "$CT_BIN" build "$fixtures/$task.ct" -I "$repo/src" -o "$task" \
+            --outdir "$tmp/build-$task" --cflags "-Wall -Wextra -Werror"
+    ) >"$log" 2>&1
+    rc=$?
+    [ "$rc" -ne 0 ] || { cat "$log" >&2; fail "build unexpectedly succeeded"; }
+    grep -qF "no method 'post' for type 'char *'" "$log" \
+        || { cat "$log" >&2; fail "build failed without the expected 'no method' diagnostic"; }
+    printf 'ok %s (rejected with the expected diagnostic)\n' "$task"
+}
+
 run_abi() {
     log="$tmp/$task.build.log"
     "$CC_BIN" -std=c99 -Wall -Wextra -Werror -I "$repo/src/http" \
@@ -64,6 +78,9 @@ phase1_abi)
     ;;
 phase1_chain | phase1_var)
     run_ct
+    ;;
+phase1_no_mapping)
+    run_negative
     ;;
 *)
     echo "no wired fixture for '$task'; nothing ran" >&2
