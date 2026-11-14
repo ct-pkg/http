@@ -3,12 +3,12 @@
 `libcurl` easy handle 的 HTTP 客户端包。对外是链式接口：字符串起手，请求对象承载配置，
 响应对象只读。
 
-- 版本：0.1.0（phase 4：同步执行与响应读取面）
+- 版本：0.1.0（phase 5：错误模型与谓词真值表）
 - 许可：MIT（`.ct` / shim / 测试）+ curl 原许可（链接的系统 libcurl）
 - 平台：macOS 与 Linux 的系统 libcurl
 - 规划：[0.1.0 roadmap](docs/planning/ct-http-0.1.0-roadmap.md)、
   [feature 划分](docs/planning/ct-http-0.1.0-features.md)
-- 当前 phase 卡：[PH-4](docs/phases/PH-4/card.md)
+- 当前 phase 卡：[PH-5](docs/phases/PH-5/card.md)
 - 设计稿：[docs/design.md](docs/design.md)
 
 > **`send()` 真的发请求**：phase 4 起 shim 调用 `curl_easy_perform`，状态码与 body
@@ -65,8 +65,10 @@ req->free();
 
 - 只接受 `http://` 与 `https://`（大小写不敏感）；其余 scheme 在工厂返回时就带本地
   负数码，easy handle 另设 `CURLOPT_PROTOCOLS_STR=http,https` 兜底。
-- 本地校验码目前是 shim 内部字段（`HTTP_LOCAL_ERR_*`，-1001…-1005），
-  **不是公开错误面**；公开错误码在 phase 5 裁定。
+- 本地校验码是 `http.shim.h` 的宏（`HTTP_LOCAL_ERR_*`，-1001…-1006），**是公开错误面**
+  的一部分：0 表示无错，正数是 `CURLcode` 原值，负数是本地拒绝。S-05 已裁定不引入
+  `HTTP_ERR_*` 枚举——错误集还会增长，枚举会让每次扩展都变成对所有全写 `switch`
+  的源码破坏。
 - `phase 4` 起 `send()` 真的调用 `curl_easy_perform`；本地校验失败的请求不会离开进程。
 
 ## 响应面（phase 4）
@@ -79,6 +81,11 @@ req->free();
 | `body()` | 响应体首地址；NUL 结尾，但长度只认 `body_len()` |
 | `body_len()` | 响应体字节数，内嵌 NUL 不截断 |
 | `total_bytes()` | write 回调累计字节，与 `body_len()` 同源 |
+| `error()` | 0 = 无错；正数 = `CURLcode` 原值；负数 = 本地拒绝 |
+| `error_msg()` | `"<阶段>: <主机> (code N)"`，无错时为空串 |
+| `error_detail()` | `"code=N stage=S host=H"`，同一输入可复现 |
+| `is_ok()` | 2xx 且 `error()==0` 且未取消 |
+| `is_cancelled()` | 取消位；phase 5 没有取消路径，恒为 `0` |
 | `take_body()` | 取走 body：响应侧置空、`body_len()` 归零，调用方负责 `free` 一次 |
 | `free()` | 释放响应；`take_body()` 之后不再持有 body |
 
@@ -87,9 +94,58 @@ req->free();
 - **超时边界**：连接超时与总超时在 libcurl 侧都是 `CURLE_OPERATION_TIMEDOUT`(28)，
   调用方拿不到「哪个超时触发」的信息。区分它们需要 shim 自己记录阶段与计时
   （连接时间、write 首字节时间戳、进度回调空档），留到 phase 6。
-- **失败码**：`http_shim_last_curl_code()` 只是测试钩子，不是公开错误面；公开错误模型在 phase 5。
+- **失败码**：`http_shim_last_curl_code()` 只是测试钩子；调用方读 `error()`。
 - **响应头读取不在 phase 4**：属待裁定项（S-01），即使实现成本只有约 1 个任务
   （header 回调 + 存储 + 查询）也未加入。
+
+## 错误面（phase 5）
+
+三种结果分开，判定顺序固定：
+
+```text
+import http::http;
+#include <stdio.h>
+
+int main(void)
+{
+    CResponse *res = "https://api.example.com/users"->post()->send();
+
+    if (res->is_cancelled()) {
+        printf("cancelled\n");            /* phase 8 才会有这条路径 */
+    } else if (res->error() != 0) {
+        printf("transport %d: %s\n",      /* 正数 = CURLcode */
+               res->error(), res->error_msg());
+    } else if (res->is_ok()) {
+        printf("%d %s\n", res->status(), res->body());
+    } else {
+        printf("http %d %s\n",            /* error==0，status 是 4xx/5xx */
+               res->status(), res->body());
+    }
+
+    res->free();
+    return 0;
+}
+```
+
+- **本地拒绝**是负数码：`-1001` ARG、`-1002` HEADER、`-1003` BODY、`-1004` SCHEME、
+  `-1005` TIMEOUT、`-1006` NO_HANDLE。`NO_HANDLE` 表示没有 easy handle（创建失败或
+  send 时缺失），以前会静默成 `status 0`，现在会报出来。
+- **传输错误**是正的 `CURLcode` 原值，未知码也原样保留（例如注入 `9999` 读到 `9999`），
+  不归零、不改写。阶段只影响 `error_msg()` 文案：`resolve` / `connect` / `timeout` /
+  `tls` / `write` / `cancelled` / `transfer`。
+- **HTTP 4xx/5xx 不是传输错误**：`error()==0`，`is_ok()==0`，靠 `status()` 区分。
+- **谓词真值表**（实测于 `p5-predicates`）：
+
+  | 状态 | status | error | is_ok | is_cancelled |
+  | --- | --- | --- | --- | --- |
+  | 成功 | 200 | 0 | 1 | 0 |
+  | HTTP 错误 | 404 | 0 | 0 | 0 |
+  | 传输错误 | 0 | 7 | 0 | 0 |
+  | 取消 | 200 | 0 | 0 | 1 |
+
+  `is_ok()` 的判定里包含 `!cancelled`，所以两个谓词不可能同时为真；这不是调用方约定，
+  是构造保证。取消后 `send()` 的返回值要等 phase 8 的 `cancel()` 落地才能实测；本 phase
+  只能证明同一份 `status/error` 下置位取消会让 `is_ok()` 翻转。
 
 ## 构建
 

@@ -214,7 +214,12 @@ g3)
     bash "$pkg/test/run.sh" p4-take-body-bad || fail "p4-take-body-bad"
     bash "$pkg/test/run.sh" p4-refused || fail "p4-refused"
     bash "$pkg/test/run.sh" p4-timeout || fail "p4-timeout"
-    printf 'ok g3 (abi, chain, variable landing, negative import, shim lifecycle, release, response ownership, ops, request config, response bytes, take_body, failure codes)\n'
+    bash "$pkg/test/run.sh" p5-local || fail "p5-local"
+    bash "$pkg/test/run.sh" p5-table || fail "p5-table"
+    bash "$pkg/test/run.sh" p5-http-error || fail "p5-http-error"
+    bash "$pkg/test/run.sh" p5-unknown || fail "p5-unknown"
+    bash "$pkg/test/run.sh" p5-predicates || fail "p5-predicates"
+    printf 'ok g3 (abi, chain, variable landing, negative import, shim lifecycle, release, response ownership, ops, request config, response bytes, take_body, failure codes, error model, predicates)\n'
     ;;
 g2 | g4 | g5 | g6 | g7 | g8 | g9)
     printf '%s: not implemented yet (see docs/phases/PH-1/card.md)\n' "$gate" >&2
