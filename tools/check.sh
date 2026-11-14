@@ -183,7 +183,14 @@ g1)
     fi
     printf 'ok g1 (card items, task columns, frozen criteria/tasks digests)\n'
     ;;
-g2 | g3 | g4 | g5 | g6 | g7 | g8 | g9)
+g3)
+    [ -x "$CT_BIN" ] || fail "ct not found: $CT_BIN"
+    bash "$pkg/test/run.sh" phase1_abi || fail "phase1_abi"
+    bash "$pkg/test/run.sh" phase1_chain || fail "phase1_chain"
+    bash "$pkg/test/run.sh" phase1_var || fail "phase1_var"
+    printf 'ok g3 (abi, chain, variable landing)\n'
+    ;;
+g2 | g4 | g5 | g6 | g7 | g8 | g9)
     printf '%s: not implemented yet (see docs/phases/PH-1/card.md)\n' "$gate" >&2
     exit 2
     ;;
