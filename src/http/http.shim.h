@@ -62,6 +62,7 @@ struct HttpResponse {
     int error;        /* 0, a positive CURLcode, or a negative local code */
     char *error_msg;  /* owned; "<stage>: <host> (code N)", NULL when clean */
     char *error_detail; /* owned; "code=N stage=S host=H", reproducible */
+    int cancelled;    /* set only by a real abort once phase 8 adds cancel() */
 };
 
 /* Construction and configuration. */
@@ -98,8 +99,11 @@ int http_response_error(struct HttpResponse *r);
 const char *http_response_error_msg(struct HttpResponse *r);
 const char *http_response_error_detail(struct HttpResponse *r);
 
-/* 2xx with no transport/local error. Never true for 3xx/4xx/5xx. */
+/* 2xx with no transport/local error and not cancelled. Never true for 3xx/4xx/5xx. */
 int http_response_is_ok(struct HttpResponse *r);
+
+/* Cancellation is a separate axis: is_ok() rules it out by construction. */
+int http_response_is_cancelled(struct HttpResponse *r);
 
 /* Move the body out: the response stops owning it (body becomes NULL and
    body_len 0), the caller must free() the returned pointer exactly once. */

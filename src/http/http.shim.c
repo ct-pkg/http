@@ -403,6 +403,7 @@ static struct HttpResponse *real_send(struct HttpRequest *r)
     resp->error = 0;
     resp->error_msg = NULL;
     resp->error_detail = NULL;
+    resp->cancelled = 0;
     g_last_curl_code = 0;
 
     /* Local rejections keep their negative code; no handle is its own case. */
@@ -484,8 +485,13 @@ const char *http_response_error_detail(struct HttpResponse *r)
 
 int http_response_is_ok(struct HttpResponse *r)
 {
-    return r->status >= 200 && r->status < 300 && r->error == 0;
+    /* The cancellation term is what makes the two predicates mutually
+       exclusive: nothing else can flip is_ok on a 200 with error 0. */
+    return r->status >= 200 && r->status < 300 && r->error == 0
+           && !r->cancelled;
 }
+
+int http_response_is_cancelled(struct HttpResponse *r) { return r->cancelled != 0; }
 
 /*
  * Single ownership: the pointer leaves the response and the response forgets
