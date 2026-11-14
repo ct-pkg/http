@@ -9,8 +9,8 @@ static int g_easy_cleanup_count = 0;
 static int g_response_free_count = 0;
 static int g_curl_global_ready = 0;
 
-static struct HttpResponse *stub_send(struct HttpRequest *r);
-static const struct HttpRequestOps http_default_ops = { stub_send };
+static struct HttpResponse *real_send(struct HttpRequest *r);
+static const struct HttpRequestOps http_default_ops = { real_send };
 
 static void ensure_curl_global(void)
 {
@@ -285,20 +285,73 @@ struct HttpRequest *http_request_body(struct HttpRequest *r,
     return r;
 }
 
-/* Stub: returns a fixed response. Phase 4 replaces this with perform(). */
-static struct HttpResponse *stub_send(struct HttpRequest *r)
+/* Growable response buffer filled by the write callback. */
+struct BodyBuf {
+    char *data;
+    size_t len;
+    size_t cap;
+};
+
+static size_t write_cb(char *ptr, size_t size, size_t nmemb, void *ud)
+{
+    struct BodyBuf *b = (struct BodyBuf *)ud;
+    size_t n = size * nmemb;
+    if (n == 0) {
+        return 0;
+    }
+    if (b->len + n + 1 > b->cap) {
+        size_t cap = b->cap != 0 ? b->cap : 128;
+        while (cap < b->len + n + 1) {
+            cap = cap * 2;
+        }
+        char *grown = (char *)realloc(b->data, cap);
+        if (grown == NULL) {
+            return 0; /* aborts the transfer with CURLE_WRITE_ERROR */
+        }
+        b->data = grown;
+        b->cap = cap;
+    }
+    memcpy(b->data + b->len, ptr, n);
+    b->len = b->len + n;
+    b->data[b->len] = '\0';
+    return n;
+}
+
+/*
+ * One synchronous exchange. The request keeps its easy handle: send() never
+ * cleans up, so the caller's explicit release stays the only owner. A failed
+ * transfer still returns a response (status 0) so the release path is uniform.
+ */
+static struct HttpResponse *real_send(struct HttpRequest *r)
 {
     struct HttpResponse *resp = (struct HttpResponse *)malloc(sizeof(struct HttpResponse));
     if (resp == NULL) {
         return NULL;
     }
-    if (r->timeout_ms < 0) {
-        resp->status = 408;
-        resp->body = dup_string("stub: timeout");
-    } else {
-        resp->status = 200;
-        resp->body = dup_string("{\"users\":3}");
+    resp->status = 0;
+    resp->body = NULL;
+
+    /* A locally rejected request never leaves the process. */
+    if (r->local_error != 0 || r->easy == NULL) {
+        resp->body = dup_string("");
+        return resp;
     }
+
+    struct BodyBuf buf;
+    buf.data = NULL;
+    buf.len = 0;
+    buf.cap = 0;
+
+    CURL *easy = (CURL *)r->easy;
+    curl_easy_setopt(easy, CURLOPT_URL, r->url);
+    curl_easy_setopt(easy, CURLOPT_WRITEFUNCTION, write_cb);
+    curl_easy_setopt(easy, CURLOPT_WRITEDATA, &buf);
+    curl_easy_perform(easy);
+
+    long code = 0;
+    curl_easy_getinfo(easy, CURLINFO_RESPONSE_CODE, &code);
+    resp->status = (int)code;
+    resp->body = buf.data != NULL ? buf.data : dup_string("");
     return resp;
 }
 

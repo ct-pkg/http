@@ -72,7 +72,7 @@ struct HttpRequest *http_request_user_agent(struct HttpRequest *r, const char *u
 struct HttpRequest *http_request_insecure(struct HttpRequest *r, int on);
 struct HttpRequest *http_request_follow_redirects(struct HttpRequest *r, int on);
 
-/* Execution (still a fixed-value stub until phase 4). */
+/* Execution: one synchronous perform, still guarded by the local error. */
 struct HttpResponse *http_request_send(struct HttpRequest *r);
 
 /* Replace the ops table; NULL or a NULL ops field falls back to the default. */
