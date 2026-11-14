@@ -263,6 +263,9 @@ p5-http-error)
 p5-unknown)
     run_cc
     ;;
+p5-predicates)
+    run_cc_server
+    ;;
 phase1_no_mapping)
     run_negative
     ;;
