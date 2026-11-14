@@ -3,12 +3,12 @@
 `libcurl` easy handle 的 HTTP 客户端包。对外是链式接口：字符串起手，请求对象承载配置，
 响应对象只读。
 
-- 版本：0.1.0（phase 5：错误模型与谓词真值表）
+- 版本：0.1.0（phase 6：三种超时区分与慢流保护）
 - 许可：MIT（`.ct` / shim / 测试）+ curl 原许可（链接的系统 libcurl）
 - 平台：macOS 与 Linux 的系统 libcurl
 - 规划：[0.1.0 roadmap](docs/planning/ct-http-0.1.0-roadmap.md)、
   [feature 划分](docs/planning/ct-http-0.1.0-features.md)
-- 当前 phase 卡：[PH-5](docs/phases/PH-5/card.md)
+- 当前 phase 卡：[PH-6](docs/phases/PH-6/card.md)
 - 设计稿：[docs/design.md](docs/design.md)
 
 > **`send()` 真的发请求**：phase 4 起 shim 调用 `curl_easy_perform`，状态码与 body
@@ -58,6 +58,7 @@ req->free();
 | `header(name, value)` | 请求头；名或值含 CR/LF 时本地拒绝，不进 slist | 无 |
 | `timeout(ms)` | 总超时；负值本地拒绝 | 不设（`0`） |
 | `connect_timeout(ms)` | 连接超时；负值本地拒绝 | 不设（`0`） |
+| `idle_timeout(ms)` | 数据空档上限（首字节前也算空档）；负值本地拒绝 | 不设（`0`） |
 | `body(data, len)` | 上传体；按 `len` 深拷贝，先 `POSTFIELDSIZE` 后 `COPYPOSTFIELDS` | 无 |
 | `user_agent(ua)` | User-Agent | `ct-http/0.1.0` |
 | `insecure(on)` | `1` 时同时关 `VERIFYPEER` 与 `VERIFYHOST` | `0`（校验开） |
@@ -91,9 +92,8 @@ req->free();
 
 - **`take_body` 是所有权转移，不是借用**：取走后原响应的 `free()` 不会重复释放
   （ASAN 正例 `p4-take-body`，负例 `p4-take-body-bad` 证明断言不是空转）。
-- **超时边界**：连接超时与总超时在 libcurl 侧都是 `CURLE_OPERATION_TIMEDOUT`(28)，
-  调用方拿不到「哪个超时触发」的信息。区分它们需要 shim 自己记录阶段与计时
-  （连接时间、write 首字节时间戳、进度回调空档），留到 phase 6。
+- **超时边界**：libcurl 只给一个 `CURLE_OPERATION_TIMEDOUT`(28)；连接 / 总时长 /
+  空闲的区分由 shim 自己记录，见下方「超时（phase 6）」。
 - **失败码**：`http_shim_last_curl_code()` 只是测试钩子；调用方读 `error()`。
 - **响应头读取不在 phase 4**：属待裁定项（S-01），即使实现成本只有约 1 个任务
   （header 回调 + 存储 + 查询）也未加入。
@@ -146,6 +146,64 @@ int main(void)
   `is_ok()` 的判定里包含 `!cancelled`，所以两个谓词不可能同时为真；这不是调用方约定，
   是构造保证。取消后 `send()` 的返回值要等 phase 8 的 `cancel()` 落地才能实测；本 phase
   只能证明同一份 `status/error` 下置位取消会让 `is_ok()` 翻转。
+
+## 超时（phase 6）
+
+`timeout_kind()` 是纯查询，不额外分配；成功路径恒为 `0`：
+
+```text
+import http::http;
+#include <stdio.h>
+
+int main(void)
+{
+    CRequest *req = "https://api.example.com/users"->post();
+    req->timeout(3000);          /* 总时长 */
+    req->connect_timeout(1000);  /* 连接 */
+    req->idle_timeout(1500);     /* 数据空档 */
+
+    CResponse *res = req->send();
+
+    if (res->error() == 28) {                 /* CURLE_OPERATION_TIMEDOUT */
+        switch (res->timeout_kind()) {
+        case 1:  printf("connect timeout\n"); break;
+        case 2:  printf("total timeout\n");   break;
+        case 3:  printf("idle timeout\n");    break;
+        default: printf("timeout, kind unknown\n");
+        }
+    }
+
+    res->free();
+    req->free();
+    return 0;
+}
+```
+
+| `timeout_kind()` | 含义 | 判定依据 |
+| --- | --- | --- |
+| `0` | 非超时（成功或别的错误） | 恒为 0；不依赖有没有超时配置 |
+| `1` | 连接超时 | `transport==28` 且 `CURLINFO_CONNECT_TIME_T==0`，并且配置了 `connect_timeout` |
+| `2` | 总时长超时 | `transport==28` 且不是连接超时（含首字节前就耗尽总时长） |
+| `3` | 空闲超时 | 进度回调发现空档超过 `idle_timeout`，中止后把 `42` 归一成 `28` |
+
+- **判定时点**：全部在 `curl_easy_perform` 返回之后一次算清，不在传输中途猜。
+  连接超时用 `CURLINFO_CONNECT_TIME_T`（微秒）作为「握手没完成」的硬证据。
+- **精度**：连接 / 总时长是 libcurl 自己的计时，亚毫秒级；空闲是进度回调粒度，
+  实测约 **1 秒**一次，因此 `idle_timeout(500)` 实际在 ~1.0–1.1 秒中止，
+  误差上限约为一个回调周期。
+- **可能误判**：`timeout_kind==2` 是「28 且非连接超时」的兜底，它不区分「首字节前
+  耗尽总时长」和「传了一半耗尽总时长」——两者都是总时长，对外语义一致；对
+  `CURLINFO_CONNECT_TIME_T==0` 但实际已连上的极端情况（libcurl 未填该信息）会落到
+  2，不会错报成 1。
+- **合法慢流不会被误杀**：没有使用 `LOW_SPEED_LIMIT` / `LOW_SPEED_TIME`（那对会以
+  平均速率杀「每 59 秒 1 字节」的合法流）。空档判定只看「距离上一字节多久」，
+  只要数据持续到达、间隔小于 `idle_timeout` 就永不中止。夹具 `p6-slow`
+  每 200 ms 一字节、`idle_timeout(500)`，结果 `status 200 body_len 5 kind 0 ok 1`。
+  200 ms 节奏是「1 字节 / 59 秒」的等比压缩，断言的性质相同，但整套用例不必真等。
+- **负值**：`idle_timeout(ms<0)` 与 `timeout(ms<0)` 一样是本地 `-1005`，请求不离开
+  进程（`p6-negative` 的服务端计数为 0）。
+- **全部真实网络**：本 phase 的五个夹具都走本地回环或 TEST-NET-1，没有使用
+  `http_shim_inject_curl_code`；连接超时用不可路由的 `192.0.2.1:81` 真实触发。
 
 ## 构建
 
@@ -214,7 +272,7 @@ ct install
 ```sh
 bash tools/check.sh g0     # 规约纳管：spec 块 + 实例化表 + session-map + 版本落点
 bash tools/check.sh g1     # 卡片十项 + 任务七列 + 判据/任务摘要冻结
-bash tools/check.sh g3     # 夹具构建 + 运行 + 负例 + 生命周期/释放 + 配置面 + 真执行响应面
+bash tools/check.sh g3     # 夹具构建 + 运行 + 负例 + 生命周期/释放 + 配置面 + 真执行响应面 + 超时区分
 bash test/gates/g1_negative.sh   # 证明 g1 会拒绝篡改卡
 ```
 
