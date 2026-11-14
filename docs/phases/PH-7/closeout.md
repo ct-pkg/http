@@ -32,7 +32,7 @@
 | T3 | `3e42a0a` | `9119ca9` | [T3.md](../../reviews/PH-7/T3.md) |
 | T4 | `e748d4c` | `cd93f0a` | [T4.md](../../reviews/PH-7/T4.md) |
 | T5 | `c9ef9e4` | `7027892` | [T5.md](../../reviews/PH-7/T5.md) |
-| T6 | `e9dc0e2` | 见 `docs: PH7-T6 流式面与收口` | [T6.md](../../reviews/PH-7/T6.md) |
+| T6 | `e9dc0e2` | `290fa25` | [T6.md](../../reviews/PH-7/T6.md) |
 
 ## 3. 交付物
 
