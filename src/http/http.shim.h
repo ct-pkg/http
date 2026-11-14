@@ -38,6 +38,7 @@ struct HttpRequest {
     int connect_timeout_ms;
     int insecure;         /* 0 = verify peer/host, the default */
     int follow_redirects; /* 0 = do not follow, the default */
+    int idle_timeout_ms;  /* 0 = no idle limit; gap since the last data byte */
     char *user_agent;     /* owned; defaults to HTTP_DEFAULT_USER_AGENT */
 };
 
@@ -78,6 +79,7 @@ struct HttpRequest *http_request_header(struct HttpRequest *r,
                                         const char *name,
                                         const char *value);
 struct HttpRequest *http_request_timeout(struct HttpRequest *r, int ms);
+struct HttpRequest *http_request_idle_timeout(struct HttpRequest *r, int ms);
 struct HttpRequest *http_request_body(struct HttpRequest *r,
                                       const char *data,
                                       int len);

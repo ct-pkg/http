@@ -84,6 +84,7 @@ struct HttpRequest *http_request_new(const char *url)
     r->connect_timeout_ms = 0;
     r->insecure = 0;
     r->follow_redirects = 0;
+    r->idle_timeout_ms = 0;
     r->user_agent = dup_string(HTTP_DEFAULT_USER_AGENT);
     if (!has_http_scheme(r->url)) {
         r->local_error = HTTP_LOCAL_ERR_SCHEME;
@@ -178,6 +179,20 @@ struct HttpRequest *http_request_timeout(struct HttpRequest *r, int ms)
     if (r->easy != NULL) {
         curl_easy_setopt((CURL *)r->easy, CURLOPT_TIMEOUT_MS, (long)ms);
     }
+    return r;
+}
+
+/*
+ * Idle is data-gap based, not average-speed based: a stream that keeps sending
+ * slowly must never be killed for being slow. A negative ms becomes a local
+ * error in PH6-T5; until then it simply behaves as "no limit".
+ */
+struct HttpRequest *http_request_idle_timeout(struct HttpRequest *r, int ms)
+{
+    if (r == NULL) {
+        return NULL;
+    }
+    r->idle_timeout_ms = ms;
     return r;
 }
 
@@ -370,10 +385,18 @@ static int64_t now_us(void)
 }
 
 /* Growable response buffer filled by the write callback. */
+struct XferState {
+    int64_t last_us;   /* last time a data byte arrived, or the send start */
+    int idle_ms;
+    int first_byte;
+    int idle_fired;
+};
+
 struct BodyBuf {
     char *data;
     size_t len;
     size_t cap;
+    struct XferState *xfer;
 };
 
 static size_t write_cb(char *ptr, size_t size, size_t nmemb, void *ud)
@@ -398,7 +421,23 @@ static size_t write_cb(char *ptr, size_t size, size_t nmemb, void *ud)
     memcpy(b->data + b->len, ptr, n);
     b->len = b->len + n;
     b->data[b->len] = '\0';
+    if (b->xfer != NULL) {
+        b->xfer->last_us = now_us();
+        b->xfer->first_byte = 1;
+    }
     return n;
+}
+
+/* libcurl calls this about once a second; the gap check lives here. */
+static int xfer_cb(void *ud, curl_off_t dlt, curl_off_t dln,
+                   curl_off_t ult, curl_off_t uln)
+{
+    (void)ud;
+    (void)dlt;
+    (void)dln;
+    (void)ult;
+    (void)uln;
+    return 0;
 }
 
 /*
@@ -439,10 +478,24 @@ static struct HttpResponse *real_send(struct HttpRequest *r)
     buf.len = 0;
     buf.cap = 0;
 
+    struct XferState xfer;
+    xfer.last_us = now_us();
+    xfer.idle_ms = r->idle_timeout_ms;
+    xfer.first_byte = 0;
+    xfer.idle_fired = 0;
+    buf.xfer = &xfer;
+
     CURL *easy = (CURL *)r->easy;
     curl_easy_setopt(easy, CURLOPT_URL, r->url);
     curl_easy_setopt(easy, CURLOPT_WRITEFUNCTION, write_cb);
     curl_easy_setopt(easy, CURLOPT_WRITEDATA, &buf);
+    if (r->idle_timeout_ms > 0) {
+        curl_easy_setopt(easy, CURLOPT_NOPROGRESS, 0L);
+        curl_easy_setopt(easy, CURLOPT_XFERINFOFUNCTION, xfer_cb);
+        curl_easy_setopt(easy, CURLOPT_XFERINFODATA, &xfer);
+    } else {
+        curl_easy_setopt(easy, CURLOPT_NOPROGRESS, 1L);
+    }
 
     int transport;
     int64_t started_us = now_us();
