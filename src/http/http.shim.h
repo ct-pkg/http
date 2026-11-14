@@ -55,7 +55,9 @@ struct HttpRequest {
 
 struct HttpResponse {
     int status;
-    char *body;       /* owned by the response */
+    char *body;       /* owned by the response; not a C string, use body_len */
+    int body_len;     /* bytes in body, so an embedded NUL survives */
+    int total_bytes;  /* bytes accumulated by the write callback */
 };
 
 /* Construction and configuration. */
@@ -81,6 +83,8 @@ void http_request_set_ops(struct HttpRequest *r, const struct HttpRequestOps *op
 /* Read-only response view. */
 int http_response_status(struct HttpResponse *r);
 char *http_response_body(struct HttpResponse *r);
+int http_response_body_len(struct HttpResponse *r);
+int http_response_total_bytes(struct HttpResponse *r);
 
 /*
  * Explicit release. Nothing runs curl_easy_cleanup on scope exit: the caller

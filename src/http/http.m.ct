@@ -33,6 +33,8 @@ pub trait RequestBuilder {
 pub trait ResponseView {
     int status();
     char *body();
+    int body_len();
+    int total_bytes();
     void free();
 }
 
@@ -53,7 +55,9 @@ map trait RequestBuilder for type CRequest * {
 }
 
 map trait ResponseView for type CResponse * {
-    status(r) -> http_response_status(r);
-    body(r)   -> http_response_body(r);
-    free(r)   -> http_response_release(r);
+    status(r)      -> http_response_status(r);
+    body(r)        -> http_response_body(r);
+    body_len(r)    -> http_response_body_len(r);
+    total_bytes(r) -> http_response_total_bytes(r);
+    free(r)        -> http_response_release(r);
 }

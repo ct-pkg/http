@@ -330,6 +330,8 @@ static struct HttpResponse *real_send(struct HttpRequest *r)
     }
     resp->status = 0;
     resp->body = NULL;
+    resp->body_len = 0;
+    resp->total_bytes = 0;
 
     /* A locally rejected request never leaves the process. */
     if (r->local_error != 0 || r->easy == NULL) {
@@ -352,6 +354,10 @@ static struct HttpResponse *real_send(struct HttpRequest *r)
     curl_easy_getinfo(easy, CURLINFO_RESPONSE_CODE, &code);
     resp->status = (int)code;
     resp->body = buf.data != NULL ? buf.data : dup_string("");
+    resp->body_len = (int)buf.len;
+    /* Written down here: total_bytes is the write-callback total, not a
+       getinfo figure, so the two sizes can never disagree. */
+    resp->total_bytes = (int)buf.len;
     return resp;
 }
 
@@ -372,6 +378,8 @@ void http_request_set_ops(struct HttpRequest *r, const struct HttpRequestOps *op
 
 int http_response_status(struct HttpResponse *r) { return r->status; }
 char *http_response_body(struct HttpResponse *r) { return r->body; }
+int http_response_body_len(struct HttpResponse *r) { return r->body_len; }
+int http_response_total_bytes(struct HttpResponse *r) { return r->total_bytes; }
 
 /*
  * The one place a request is destroyed. The easy handle is cleaned up here
