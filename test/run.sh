@@ -260,6 +260,9 @@ p5-table)
 p5-http-error)
     run_cc_server
     ;;
+p5-unknown)
+    run_cc
+    ;;
 phase1_no_mapping)
     run_negative
     ;;
