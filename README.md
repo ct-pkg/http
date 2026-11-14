@@ -3,17 +3,17 @@
 `libcurl` easy handle 的 HTTP 客户端包。对外是链式接口：字符串起手，请求对象承载配置，
 响应对象只读。
 
-- 版本：0.1.0（phase 2：真 easy handle 与显式释放；`send()` 仍是固定值 stub）
+- 版本：0.1.0（phase 3：请求配置与本地校验；`send()` 仍是固定值 stub）
 - 许可：MIT（`.ct` / shim / 测试）+ curl 原许可（链接的系统 libcurl）
 - 平台：macOS 与 Linux 的系统 libcurl
 - 规划：[0.1.0 roadmap](docs/planning/ct-http-0.1.0-roadmap.md)、
   [feature 划分](docs/planning/ct-http-0.1.0-features.md)
-- 当前 phase 卡：[PH-2](docs/phases/PH-2/card.md)
+- 当前 phase 卡：[PH-3](docs/phases/PH-3/card.md)
 - 设计稿：[docs/design.md](docs/design.md)
 
 > **`send()` 还不发网络**：shim 返回固定的 `200` 与一段 JSON。
 > 真实请求在 phase 4 接入；phase 2 已让 `curl_easy_init` / `curl_easy_cleanup`
-> 真实发生，并由显式释放触发。
+> 真实发生，phase 3 已让配置写进 easy handle 并做本地校验。
 
 ## 用法
 
@@ -49,6 +49,26 @@ int status = res->status();
 res->free();
 req->free();
 ```
+
+## 配置面（phase 3）
+
+所有 setter 返回同一个 `CRequest *`，链式与变量落点两种写法等价：
+
+| 方法 | 作用 | 默认值 |
+| --- | --- | --- |
+| `header(name, value)` | 请求头；名或值含 CR/LF 时本地拒绝，不进 slist | 无 |
+| `timeout(ms)` | 总超时；负值本地拒绝 | 不设（`0`） |
+| `connect_timeout(ms)` | 连接超时；负值本地拒绝 | 不设（`0`） |
+| `body(data, len)` | 上传体；按 `len` 深拷贝，先 `POSTFIELDSIZE` 后 `COPYPOSTFIELDS` | 无 |
+| `user_agent(ua)` | User-Agent | `ct-http/0.1.0` |
+| `insecure(on)` | `1` 时同时关 `VERIFYPEER` 与 `VERIFYHOST` | `0`（校验开） |
+| `follow_redirects(on)` | 是否跟随重定向 | `0`（不跟随） |
+
+- 只接受 `http://` 与 `https://`（大小写不敏感）；其余 scheme 在工厂返回时就带本地
+  负数码，easy handle 另设 `CURLOPT_PROTOCOLS_STR=http,https` 兜底。
+- 本地校验码目前是 shim 内部字段（`HTTP_LOCAL_ERR_*`，-1001…-1005），
+  **不是公开错误面**；公开错误码在 phase 5 裁定。
+- `phase 3` 不调用 `curl_easy_perform`：`send()` 仍返回固定值。
 
 ## 构建
 
@@ -117,7 +137,7 @@ ct install
 ```sh
 bash tools/check.sh g0     # 规约纳管：spec 块 + 实例化表 + session-map + 版本落点
 bash tools/check.sh g1     # 卡片十项 + 任务七列 + 判据/任务摘要冻结
-bash tools/check.sh g3     # 夹具构建 + 运行 + 负例 + shim 生命周期/释放
+bash tools/check.sh g3     # 夹具构建 + 运行 + 负例 + shim 生命周期/释放 + 配置面
 bash test/gates/g1_negative.sh   # 证明 g1 会拒绝篡改卡
 ```
 
