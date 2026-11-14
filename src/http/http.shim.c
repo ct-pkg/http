@@ -76,6 +76,10 @@ struct HttpRequest *http_request_new(const char *url)
     r->body = NULL;
     r->body_len = 0;
     r->body_stage = 0;
+    r->connect_timeout_ms = 0;
+    r->insecure = 0;
+    r->follow_redirects = 0;
+    r->user_agent = dup_string(HTTP_DEFAULT_USER_AGENT);
     if (!has_http_scheme(r->url)) {
         r->local_error = HTTP_LOCAL_ERR_SCHEME;
     }
@@ -84,6 +88,9 @@ struct HttpRequest *http_request_new(const char *url)
         /* Belt and braces with the local scheme check: never leave the process. */
         curl_easy_setopt((CURL *)r->easy, CURLOPT_PROTOCOLS_STR, "http,https");
         curl_easy_setopt((CURL *)r->easy, CURLOPT_REDIR_PROTOCOLS_STR, "http,https");
+        if (r->user_agent != NULL) {
+            curl_easy_setopt((CURL *)r->easy, CURLOPT_USERAGENT, r->user_agent);
+        }
         g_easy_init_count = g_easy_init_count + 1;
     }
     r->ops = &http_default_ops;
@@ -150,7 +157,90 @@ struct HttpRequest *http_request_header(struct HttpRequest *r,
 
 struct HttpRequest *http_request_timeout(struct HttpRequest *r, int ms)
 {
+    if (r == NULL) {
+        return NULL;
+    }
+    if (ms < 0) {
+        if (r->local_error == 0) {
+            r->local_error = HTTP_LOCAL_ERR_TIMEOUT;
+        }
+        return r;
+    }
     r->timeout_ms = ms;
+    if (r->easy != NULL) {
+        curl_easy_setopt((CURL *)r->easy, CURLOPT_TIMEOUT_MS, (long)ms);
+    }
+    return r;
+}
+
+struct HttpRequest *http_request_connect_timeout(struct HttpRequest *r, int ms)
+{
+    if (r == NULL) {
+        return NULL;
+    }
+    if (ms < 0) {
+        if (r->local_error == 0) {
+            r->local_error = HTTP_LOCAL_ERR_TIMEOUT;
+        }
+        return r;
+    }
+    r->connect_timeout_ms = ms;
+    if (r->easy != NULL) {
+        curl_easy_setopt((CURL *)r->easy, CURLOPT_CONNECTTIMEOUT_MS, (long)ms);
+    }
+    return r;
+}
+
+struct HttpRequest *http_request_user_agent(struct HttpRequest *r, const char *ua)
+{
+    if (r == NULL) {
+        return NULL;
+    }
+    if (ua == NULL) {
+        if (r->local_error == 0) {
+            r->local_error = HTTP_LOCAL_ERR_ARG;
+        }
+        return r;
+    }
+    char *copy = dup_string(ua);
+    if (copy == NULL) {
+        if (r->local_error == 0) {
+            r->local_error = HTTP_LOCAL_ERR_ARG;
+        }
+        return r;
+    }
+    free(r->user_agent);
+    r->user_agent = copy;
+    if (r->easy != NULL) {
+        curl_easy_setopt((CURL *)r->easy, CURLOPT_USERAGENT, r->user_agent);
+    }
+    return r;
+}
+
+struct HttpRequest *http_request_insecure(struct HttpRequest *r, int on)
+{
+    if (r == NULL) {
+        return NULL;
+    }
+    r->insecure = on != 0;
+    if (r->easy != NULL) {
+        /* Both switches: VERIFYHOST alone still rejects a self-signed peer. */
+        curl_easy_setopt((CURL *)r->easy, CURLOPT_SSL_VERIFYPEER, r->insecure ? 0L : 1L);
+        curl_easy_setopt((CURL *)r->easy, CURLOPT_SSL_VERIFYHOST, r->insecure ? 0L : 2L);
+    }
+    return r;
+}
+
+struct HttpRequest *http_request_follow_redirects(struct HttpRequest *r, int on)
+{
+    if (r == NULL) {
+        return NULL;
+    }
+    r->follow_redirects = on != 0;
+    if (r->easy != NULL) {
+        curl_easy_setopt((CURL *)r->easy, CURLOPT_FOLLOWLOCATION,
+                         r->follow_redirects ? 1L : 0L);
+    }
     return r;
 }
 
@@ -251,6 +341,8 @@ static void request_destroy(struct HttpRequest *r)
     r->headers_slist = NULL;
     free(r->body);
     r->body = NULL;
+    free(r->user_agent);
+    r->user_agent = NULL;
     free(r);
 }
 

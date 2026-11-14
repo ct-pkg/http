@@ -35,15 +35,23 @@ struct HttpRequest {
     /* 0 untouched, 1 POSTFIELDSIZE applied, 2 COPYPOSTFIELDS applied,
        3 applied out of order (a bug the fixtures must catch). */
     int body_stage;
+    int connect_timeout_ms;
+    int insecure;         /* 0 = verify peer/host, the default */
+    int follow_redirects; /* 0 = do not follow, the default */
+    char *user_agent;     /* owned; defaults to HTTP_DEFAULT_USER_AGENT */
 };
 
 /*
  * Local validation codes are negative so they never collide with a CURLcode.
  * They are not the public error surface (see S-05); phase 5 decides that.
  */
+#define HTTP_LOCAL_ERR_ARG (-1001)
 #define HTTP_LOCAL_ERR_HEADER (-1002)
 #define HTTP_LOCAL_ERR_BODY (-1003)
 #define HTTP_LOCAL_ERR_SCHEME (-1004)
+#define HTTP_LOCAL_ERR_TIMEOUT (-1005)
+
+#define HTTP_DEFAULT_USER_AGENT "ct-http/0.1.0"
 
 struct HttpResponse {
     int status;
@@ -59,6 +67,10 @@ struct HttpRequest *http_request_timeout(struct HttpRequest *r, int ms);
 struct HttpRequest *http_request_body(struct HttpRequest *r,
                                       const char *data,
                                       int len);
+struct HttpRequest *http_request_connect_timeout(struct HttpRequest *r, int ms);
+struct HttpRequest *http_request_user_agent(struct HttpRequest *r, const char *ua);
+struct HttpRequest *http_request_insecure(struct HttpRequest *r, int on);
+struct HttpRequest *http_request_follow_redirects(struct HttpRequest *r, int on);
 
 /* Execution (still a fixed-value stub until phase 4). */
 struct HttpResponse *http_request_send(struct HttpRequest *r);
