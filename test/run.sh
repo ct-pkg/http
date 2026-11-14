@@ -36,7 +36,8 @@ run_ct() {
     (
         cd "$tmp" || exit 1
         "$CT_BIN" build "$fixtures/$task.ct" -I "$repo/src" -o "$task" \
-            --outdir "$tmp/build-$task" --cflags "-Wall -Wextra -Werror"
+            --outdir "$tmp/build-$task" \
+            --cflags "-Wall -Wextra -Werror" --ldflags "-lcurl"
     ) >"$log" 2>&1 || { cat "$log" >&2; fail "ct build failed"; }
     grep -q 'warning:' "$log" && { cat "$log" >&2; fail "build emitted warning:"; }
     "$tmp/$task" >"$tmp/$task.out" 2>&1 \
@@ -44,6 +45,26 @@ run_ct() {
     diff -u "$fixtures/$task.expected.out" "$tmp/$task.out" \
         || fail "output mismatch"
     printf 'ok %s\n' "$task"
+}
+
+# The CT object must not reference curl: only http.shim.c may.
+run_nm() {
+    emit="$tmp/emit-$task"
+    mkdir -p "$emit"
+    log="$tmp/$task.build.log"
+    (
+        cd "$tmp" || exit 1
+        "$CT_BIN" build "$fixtures/p2-cleanup-once.ct" -I "$repo/src" \
+            --emit-c -o "$emit"
+    ) >"$log" 2>&1 || { cat "$log" >&2; fail "ct build --emit-c failed"; }
+    "$CC_BIN" -std=c99 -Wall -Wextra -Werror -I "$repo/src/http" -I "$emit" \
+        -c "$emit/p2-cleanup-once.c" -o "$tmp/$task.o" >"$log" 2>&1 \
+        || { cat "$log" >&2; fail "cc -c failed"; }
+    if nm -u "$tmp/$task.o" | grep -q '_curl_'; then
+        nm -u "$tmp/$task.o" >&2
+        fail "CT object references curl symbols"
+    fi
+    printf 'ok %s (no curl symbols in the CT object)\n' "$task"
 }
 
 run_negative() {
@@ -78,6 +99,12 @@ phase1_abi)
     ;;
 phase1_chain | phase1_var)
     run_ct
+    ;;
+p2-cleanup-once)
+    run_ct
+    ;;
+p2-nm)
+    run_nm
     ;;
 phase1_no_mapping)
     run_negative

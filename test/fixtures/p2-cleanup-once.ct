@@ -1,0 +1,15 @@
+import http::http;
+
+#include <stdio.h>
+
+int main(void)
+{
+    CRequest *req = "http://127.0.0.1:1/p2-cleanup-once"->post();
+    int before = http_shim_easy_cleanup_count();
+    req->free();
+    printf("%d %d %d\n",
+           http_shim_easy_init_count(),
+           before,
+           http_shim_easy_cleanup_count());
+    return 0;
+}
