@@ -65,15 +65,17 @@
 - **范围（做）**：
   - `src/http/http.shim.h`：`struct HttpRequest` / `struct HttpResponse` 布局 + 固定值 stub 函数。
   - `src/http/http.m.ct`：`pub type CRequest/CResponse`、三个静态 trait、三段 `map trait … for type …`。
-  - `test/fixtures/phase1_chain.ct` + expected；`test/fixtures/phase1_no_mapping.ct`（负例）。
-  - `tools/check.sh` 最小 `g1`（卡片十项 + 判据冻结摘要）与 `g3`（构建 + 运行 + 负例）。
+  - `src/http/Types.h.ct`：独立 base 的常量单元，供「只 import 类型单元」负例使用。
+  - `test/fixtures/phase1_chain.ct` + expected；`phase1_var.ct` + expected；`phase1_no_mapping.ct`（负例）；`phase1_abi.c` + expected。
+  - `tools/check.sh` 最小 `g1`（卡片十项 + 判据冻结摘要）与 `g3`（构建 + 运行 + 负例）；`test/gates/g1_negative.sh`。
 - **范围（不做）**：不发请求、不链接 libcurl、不实现释放语义、不引入 `method()` / 响应头 / `max_redirects` / 跨线程取消 / `HTTP_ERR_*`。
 - **退出判据**：
-  - `E-P1-1`：`bash tools/check.sh g1` 退出 0；把卡片的退出判据段改一行后，同一命令退出 1 并打印 `FAIL g1`（负例留证）。
-  - `E-P1-2`：`bash tools/check.sh g3` 退出 0；`ct build` 无 `warning:`；运行输出与 `phase1_chain.expected.out` 逐字节相等。
-  - `E-P1-3`：链 `"url".post().header(…).timeout(…).send().status()` 与变量落点形式（`CRequest *r = …; r->header(…);`）均 `ct build` 退出 0。
-  - `E-P1-4`：只 `import http::Types;` 的负例退出非 0，错误文案含 `no method 'post' for type 'char *'`。
+  - `E-P1-1`：`bash tools/check.sh g1` 退出 0；`bash test/gates/g1_negative.sh` 退出 0，且其内部篡改卡跑出 `FAIL g1` 与退出 1（负例留证）。
+  - `E-P1-2`：`bash tools/check.sh g3` 退出 0；`ct build` 无 `warning:`；运行输出与 expected 逐字节相等。
+  - `E-P1-3`：链 `"url"->post()->header(…)->timeout(…)->send()->status()` 与变量落点形式（`CRequest *r = …; r->header(…);`）均 `ct build` 退出 0。
+  - `E-P1-4`：只 `import http::Types;` 的负例构建退出非 0，错误文案含 `no method 'post' for type 'char *'`。
   - `E-P1-5`：`bash tools/check.sh g0` 退出 0。
+  - `E-P1-6`：`bash test/run.sh phase1_abi` 退出 0（`cc -Wall -Wextra -Werror` 零警告）。
 - **依赖**：无。
 - **风险**：namespace 目录与 D-1（`src/` vs `http/`）尚未收口，本 phase 采用 `src/http/` + `namespace http;`，偏差写进卡尾；如果后续把包根改成 `http/`，只挪路径，不改映射。
 - **对应 feature**：F-12、F-13、F-22（最小门禁部分）。
