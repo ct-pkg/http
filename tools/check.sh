@@ -232,7 +232,12 @@ g3)
     bash "$pkg/test/run.sh" p7-idle || fail "p7-idle"
     bash "$pkg/test/run.sh" p7-slow || fail "p7-slow"
     bash "$pkg/test/run.sh" p7-mutex || fail "p7-mutex"
-    printf 'ok g3 (abi, chain, variable landing, negative import, shim lifecycle, release, response ownership, ops, request config, response bytes, take_body, failure codes, error model, predicates, timeouts, streaming)\n'
+    bash "$pkg/test/run.sh" p8-cancel || fail "p8-cancel"
+    bash "$pkg/test/run.sh" p8-not-cancelled || fail "p8-not-cancelled"
+    bash "$pkg/test/run.sh" p8-lifetime || fail "p8-lifetime"
+    bash "$pkg/test/run.sh" p8-lifetime-bad || fail "p8-lifetime-bad"
+    bash "$pkg/test/run.sh" p8-chain || fail "p8-chain"
+    printf 'ok g3 (abi, chain, variable landing, negative import, shim lifecycle, release, response ownership, ops, request config, response bytes, take_body, failure codes, error model, predicates, timeouts, streaming, cancellation, lifetime)\n'
     ;;
 g2 | g4 | g5 | g6 | g7 | g8 | g9)
     printf '%s: not implemented yet (see docs/phases/PH-1/card.md)\n' "$gate" >&2

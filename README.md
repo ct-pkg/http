@@ -3,12 +3,12 @@
 `libcurl` easy handle 的 HTTP 客户端包。对外是链式接口：字符串起手，请求对象承载配置，
 响应对象只读。
 
-- 版本：0.1.0（phase 7：流式执行与慢流保护）
+- 版本：0.1.0（phase 8：取消与生命周期）
 - 许可：MIT（`.ct` / shim / 测试）+ curl 原许可（链接的系统 libcurl）
 - 平台：macOS 与 Linux 的系统 libcurl
 - 规划：[0.1.0 roadmap](docs/planning/ct-http-0.1.0-roadmap.md)、
   [feature 划分](docs/planning/ct-http-0.1.0-features.md)
-- 当前 phase 卡：[PH-7](docs/phases/PH-7/card.md)
+- 当前 phase 卡：[PH-8](docs/phases/PH-8/card.md)
 - 设计稿：[docs/design.md](docs/design.md)
 
 > **`send()` 真的发请求**：phase 4 起 shim 调用 `curl_easy_perform`，状态码与 body
@@ -64,6 +64,7 @@ req->free();
 | `user_agent(ua)` | User-Agent | `ct-http/0.1.0` |
 | `insecure(on)` | `1` 时同时关 `VERIFYPEER` 与 `VERIFYHOST` | `0`（校验开） |
 | `follow_redirects(on)` | 是否跟随重定向 | `0`（不跟随） |
+| `cancel()` | 置粘性取消标志；只允许同线程调用（见「取消与生命周期」） | 未置位 |
 
 - 只接受 `http://` 与 `https://`（大小写不敏感）；其余 scheme 在工厂返回时就带本地
   负数码，easy handle 另设 `CURLOPT_PROTOCOLS_STR=http,https` 兜底。
@@ -87,7 +88,7 @@ req->free();
 | `error_msg()` | `"<阶段>: <主机> (code N)"`，无错时为空串 |
 | `error_detail()` | `"code=N stage=S host=H"`，同一输入可复现；超时多 `phase=`，上限多 `limit=` |
 | `is_ok()` | 2xx 且 `error()==0` 且未取消 |
-| `is_cancelled()` | 取消位；0.1.0 没有取消路径，恒为 `0` |
+| `is_cancelled()` | 取消位；只有 `cancel()` 真正中断传输才为 `1`，此时 `error()==42` |
 | `take_body()` | 取走 body：响应侧置空、`body_len()` 归零，调用方负责 `free` 一次；流式返回 `NULL` |
 | `free()` | 释放响应；`take_body()` 之后不再持有 body |
 
@@ -114,7 +115,7 @@ int main(void)
     CResponse *res = "https://api.example.com/users"->post()->send();
 
     if (res->is_cancelled()) {
-        printf("cancelled\n");            /* phase 8 才会有这条路径 */
+        printf("cancelled\n");            /* error()==42, phase 8 */
     } else if (res->error() != 0) {
         printf("transport %d: %s\n",      /* 正数 = CURLcode */
                res->error(), res->error_msg());
@@ -144,11 +145,12 @@ int main(void)
   | 成功 | 200 | 0 | 1 | 0 |
   | HTTP 错误 | 404 | 0 | 0 | 0 |
   | 传输错误 | 0 | 7 | 0 | 0 |
-  | 取消 | 200 | 0 | 0 | 1 |
+  | 取消 | 200 | 42 | 0 | 1 |
 
   `is_ok()` 的判定里包含 `!cancelled`，所以两个谓词不可能同时为真；这不是调用方约定，
-  是构造保证。取消后 `send()` 的返回值要等 phase 8 的 `cancel()` 落地才能实测；本 phase
-  只能证明同一份 `status/error` 下置位取消会让 `is_ok()` 翻转。
+  是构造保证。取消行由 `p8-cancel` 实测（慢响应回调内 `cancel()`）；`p5-predicates`
+  另有一条同一 `status/error` 下直接置位的行（`200 0 0 1`），单独证明
+  `is_ok` 的取消项会翻转。
 
 ## 流式（phase 7）
 
@@ -163,7 +165,60 @@ int main(void)
 - 请求体与流式响应可共存；chunked / 无 `Content-Length` 由 libcurl 解码后交付。
 - 流式读中 `idle_timeout` 生效：中止读 `28/3`，已交付字节归回调，`take_body()` 为 `NULL`；
   非流式保留已收前缀。
+- 回调内可以直接 `req->cancel()` 取消（与返回非 0 不同）：见「取消与生命周期（phase 8）」。
 - 完整示例与所有权说明见 [docs/streaming.md](docs/streaming.md)。
+
+## 取消与生命周期（phase 8）
+
+```text
+import http::http;
+#include <stdio.h>
+
+CRequest *g_req;
+
+int on_chunk(char *data, int len, void *ud)
+{
+    (void)data; (void)ud;
+    if (len > 0) {
+        g_req->cancel();     /* 置标志，不中止当前回调 */
+    }
+    return 0;                /* 返回非 0 才是回调中止（23） */
+}
+
+int main(void)
+{
+    g_req = "https://api.example.com/report"->post();
+    g_req->timeout(10000);
+    CResponse *res = g_req->send_stream(on_chunk, NULL);
+
+    printf("error=%d cancelled=%d ok=%d\n",
+           res->error(), res->is_cancelled(), res->is_ok());
+
+    res->free();
+    g_req->free();
+    return 0;
+}
+```
+
+- **判定点三处**：传输开始前、每次写回调交付字节前、每次进度回调（约 1 秒一次）。
+  连续有数据的流在下一次写回调就停；停顿流要等下一次进度回调，约 1 秒。
+  **DNS 解析阶段不可取消**：解析返回前观察不到标志。
+- **对外形态**：取消中止时 `error()==42`（`CURLE_ABORTED_BY_CALLBACK`）、
+  `is_cancelled()==1`、`is_ok()==0`、`timeout_kind()==0`。成功路径 `is_cancelled()==0`。
+- **优先级**：取消 `42` > 回调中止 `23` > 上限 `-1008` > 空闲 `28/3` > 传输码。
+  写回调在调用用户回调之前先查标志，所以同一片「取消 + 返回非 0」按取消记账。
+- **粘性标志**：`cancel()` 之后该请求不再发起新传输（连接前就返回 `42`，服务端计数 0，
+  `status()` 为 0）。要重试请新建请求对象。
+- **同线程限制**：`cancel()` 只在 `send()` 所在线程调用；标志是普通 `int`，不做 atomic。
+  跨线程取消不在 0.1.0 范围（S-04 裁决：`docs/reviews/PH-8/S-04-ruling.md`）。
+- **部分数据归属**：非流式保留已收前缀，`body_len()==total_bytes()`，`take_body()` 可取；
+  流式已交付片归调用方，`body()==NULL`、`body_len()==0`、`take_body()==NULL`。
+- **显式释放契约**：`send()` / `send_stream()` 从不释放请求，也不调用
+  `curl_easy_cleanup`；`send()` 返回后请求字段仍可读。调用方按
+  `res->free(); req->free();` 各释放一次，CT 侧 `.free()` 是终态。
+- **夹具**：`p8-cancel`（回调内取消）、`p8-not-cancelled`（两入口未取消）、
+  `p8-lifetime`（send 后读请求，ASAN 正例）、`p8-lifetime-bad`（ASAN 负例，
+  证明旧设计的 free 后读会被判 `heap-use-after-free`）、`p8-chain`（CT `.cancel()`）。
 
 ## 超时（phase 6）
 
@@ -276,9 +331,10 @@ r->free();
   WebSocket、`urlapi`；JSON 编解码（用 `json` 包）。
 - 安全默认：TLS 校验开、重定向关。
 
-以下五项仍在范围裁定中，未裁定前不进入实现：响应头读取、`method()`、默认
-`max_redirects(10)`、跨线程取消、`HTTP_ERR_*` 枚举。影响面见
-[feature 划分 §3](docs/planning/ct-http-0.1.0-features.md#3-范围待裁定项-s-01s-05)。
+以下四项仍在范围裁定中，未裁定前不进入实现：响应头读取、`method()`、默认
+`max_redirects(10)`、`HTTP_ERR_*` 枚举。跨线程取消已裁定不进入 0.1.0（S-04，
+`docs/reviews/PH-8/S-04-ruling.md`），0.1.0 的 `cancel()` 只允许同线程。
+影响面见 [feature 划分 §3](docs/planning/ct-http-0.1.0-features.md#3-范围待裁定项-s-01s-05)。
 
 ## 安装（phase 10 之后才可用）
 
@@ -292,7 +348,7 @@ ct install
 ```sh
 bash tools/check.sh g0     # 规约纳管：spec 块 + 实例化表 + session-map + 版本落点
 bash tools/check.sh g1     # 卡片十项 + 任务七列 + 判据/任务摘要冻结
-bash tools/check.sh g3     # 夹具构建 + 运行 + 负例 + 生命周期/释放 + 配置面 + 真执行响应面 + 超时区分 + 流式
+bash tools/check.sh g3     # 夹具构建 + 运行 + 负例 + 生命周期/释放 + 配置面 + 真执行响应面 + 超时区分 + 流式 + 取消/生命周期
 bash test/gates/g1_negative.sh   # 证明 g1 会拒绝篡改卡
 ```
 

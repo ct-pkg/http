@@ -27,6 +27,7 @@ pub trait RequestBuilder {
     CRequest *user_agent(char *ua);
     CRequest *insecure(int on);
     CRequest *follow_redirects(int on);
+    void cancel();
     CResponse *send();
     CResponse *send_stream(HttpChunkCb cb, void *ud);
     void free();
@@ -62,6 +63,7 @@ map trait RequestBuilder for type CRequest * {
     user_agent(r, ua)           -> http_request_user_agent(r, ua);
     insecure(r, on)              -> http_request_insecure(r, on);
     follow_redirects(r, on)     -> http_request_follow_redirects(r, on);
+    cancel(r)                   -> http_request_cancel(r);
     send(r)                     -> http_request_send(r);
     send_stream(r, cb, ud)      -> http_request_send_stream(r, cb, ud);
     free(r)                     -> http_request_release(r);

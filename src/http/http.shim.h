@@ -52,6 +52,10 @@ struct HttpRequest {
     int max_body_bytes;   /* 0 = unlimited; reaching it aborts with -1008 */
     int mode;             /* 0 fresh, 1 send(), 2 send_stream(); mixing is -1007 */
     char *user_agent;     /* owned; defaults to HTTP_DEFAULT_USER_AGENT */
+    /* Sticky cancellation flag, read at the start of a transfer, before every
+       delivered chunk and on every progress tick (~1s). Same-thread only:
+       this is a plain int, not atomic, and cancel() must not race a free(). */
+    int cancel_requested;
 };
 
 /*
@@ -86,7 +90,8 @@ struct HttpResponse {
     int error;        /* 0, a positive CURLcode, or a negative local code */
     char *error_msg;  /* owned; "<stage>: <host> (code N)", NULL when clean */
     char *error_detail; /* owned; "code=N stage=S host=H", reproducible */
-    int cancelled;    /* set only by a real abort once phase 8 adds cancel() */
+    int cancelled;    /* 1 only when cancel() actually stopped the transfer, and
+                         then error is CURLE_ABORTED_BY_CALLBACK(42) */
     int timeout_kind; /* HTTP_TIMEOUT_*; 0 unless error is a timeout */
 };
 
@@ -109,6 +114,20 @@ struct HttpRequest *http_request_connect_timeout(struct HttpRequest *r, int ms);
 struct HttpRequest *http_request_user_agent(struct HttpRequest *r, const char *ua);
 struct HttpRequest *http_request_insecure(struct HttpRequest *r, int on);
 struct HttpRequest *http_request_follow_redirects(struct HttpRequest *r, int on);
+
+/*
+ * Ask the current transfer to stop. The flag is sticky: every later send on
+ * the same request also returns cancelled without connecting. Cancellation is
+ * observed (a) before the connection, (b) before each chunk is delivered and
+ * (c) on each progress tick, about once a second, so a stalled stream stops
+ * within roughly one tick and a streaming one stops at the next chunk. The DNS
+ * phase cannot be preempted: the flag is not seen until resolution returns.
+ *
+ * Same-thread only. The flag is a plain int, not atomic; calling this from
+ * another thread while the owner may free the request is undefined behaviour
+ * (S-04: cross-thread cancellation is out of scope for 0.1.0).
+ */
+void http_request_cancel(struct HttpRequest *r);
 
 /* Execution: one synchronous perform, still guarded by the local error. */
 struct HttpResponse *http_request_send(struct HttpRequest *r);

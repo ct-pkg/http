@@ -1,0 +1,4 @@
+url_ok 1 mode 1 status 200
+cleanup_after_send 0
+cleanup_after_res_free 0 responses_freed 1
+cleanup_after_req_free 1

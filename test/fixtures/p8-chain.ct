@@ -1,0 +1,29 @@
+import http::http;
+
+#include <stdio.h>
+#include "p4-server.h"
+
+/*
+ * The cancel entry must be reachable from CT, not only from C. Cancelling
+ * before send() makes the send a no-op cancellation: 42, cancelled, and the
+ * request never leaves the process (server count stays 0).
+ */
+int main(void)
+{
+    if (p4_server_start() != 0) return 1;
+    char *url = p4_server_url("/slow4");
+
+    CRequest *req = url->post();
+    req->timeout(10000);
+    req->cancel();
+
+    CResponse *res = req->send();
+    printf("cancel_error %d cancelled %d ok %d requests %d\n",
+           res->error(), res->is_cancelled(), res->is_ok(),
+           p4_server_requests());
+
+    res->free();
+    req->free();
+    p4_server_stop();
+    return 0;
+}

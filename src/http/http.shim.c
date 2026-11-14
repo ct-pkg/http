@@ -88,6 +88,7 @@ struct HttpRequest *http_request_new(const char *url)
     r->max_body_bytes = 0;
     r->mode = 0;
     r->user_agent = dup_string(HTTP_DEFAULT_USER_AGENT);
+    r->cancel_requested = 0;
     if (!has_http_scheme(r->url)) {
         r->local_error = HTTP_LOCAL_ERR_SCHEME;
     }
@@ -290,6 +291,14 @@ struct HttpRequest *http_request_follow_redirects(struct HttpRequest *r, int on)
     return r;
 }
 
+/* Sticky by design: a cancelled request is not reusable, rebuild it to retry. */
+void http_request_cancel(struct HttpRequest *r)
+{
+    if (r != NULL) {
+        r->cancel_requested = 1;
+    }
+}
+
 struct HttpRequest *http_request_body(struct HttpRequest *r,
                                       const char *data,
                                       int len)
@@ -421,6 +430,24 @@ static void fill_local_error(struct HttpResponse *resp, const char *url,
         make_error_detail(url != NULL ? url : "", code, HTTP_TIMEOUT_NONE, 0);
 }
 
+/*
+ * Cancellation before any byte arrives: status stays 0 because no response
+ * header was read, but error/cancelled are exactly the mid-transfer shape.
+ */
+static void fill_cancel_error(struct HttpResponse *resp, const char *url,
+                              int with_body)
+{
+    resp->error = (int)CURLE_ABORTED_BY_CALLBACK;
+    resp->cancelled = 1;
+    resp->timeout_kind = HTTP_TIMEOUT_NONE;
+    if (with_body) {
+        resp->body = dup_string("");
+    }
+    resp->error_msg = make_error_msg(url != NULL ? url : "", resp->error);
+    resp->error_detail = make_error_detail(url != NULL ? url : "", resp->error,
+                                           HTTP_TIMEOUT_NONE, 0);
+}
+
 /* Wall clock in microseconds: short-lived transfers, only differences matter. */
 static int64_t now_us(void)
 {
@@ -431,10 +458,13 @@ static int64_t now_us(void)
 
 /* Growable response buffer filled by the write callback. */
 struct XferState {
-    int64_t last_us;   /* last time a data byte arrived, or the send start */
+    int64_t last_us;       /* last time a data byte arrived, or the send start */
     int idle_ms;
     int first_byte;
     int idle_fired;
+    const int *cancel_flag; /* -> HttpRequest.cancel_requested; NULL never */
+    int cancel_fired;       /* the flag, not the idle gap, stopped the transfer */
+    int aborted;            /* the user callback refused a chunk (23), not a cancel */
 };
 
 struct BodyBuf {
@@ -475,6 +505,12 @@ static size_t write_cb(char *ptr, size_t size, size_t nmemb, void *ud)
     if (n == 0) {
         return 0;
     }
+    /* Cancel before delivery: the chunk never reaches the buffer or the count. */
+    if (b->xfer != NULL && b->xfer->cancel_flag != NULL
+        && *b->xfer->cancel_flag) {
+        b->xfer->cancel_fired = 1;
+        return 0;
+    }
     /*
      * Option A cap: deliver exactly max bytes, then stop. Equal to the cap is
      * not an overflow, so an exactly-max response still succeeds.
@@ -494,6 +530,9 @@ static size_t write_cb(char *ptr, size_t size, size_t nmemb, void *ud)
         return 0;
     }
     if (body_append(b, ptr, n) != 0) {
+        if (b->xfer != NULL) {
+            b->xfer->aborted = 1;
+        }
         return 0; /* aborts the transfer with CURLE_WRITE_ERROR */
     }
     if (b->xfer != NULL) {
@@ -503,7 +542,7 @@ static size_t write_cb(char *ptr, size_t size, size_t nmemb, void *ud)
     return n;
 }
 
-/* libcurl calls this about once a second; the gap check lives here. */
+/* libcurl calls this about once a second; cancel wins over the gap check. */
 static int xfer_cb(void *ud, curl_off_t dlt, curl_off_t dln,
                    curl_off_t ult, curl_off_t uln)
 {
@@ -512,10 +551,18 @@ static int xfer_cb(void *ud, curl_off_t dlt, curl_off_t dln,
     (void)dln;
     (void)ult;
     (void)uln;
+    /* A callback abort already ended the transfer: do not relabel it as cancel. */
+    if (s->aborted) {
+        return 0;
+    }
+    if (s->cancel_flag != NULL && *s->cancel_flag) {
+        s->cancel_fired = 1;
+        return 1; /* aborts the transfer with CURLE_ABORTED_BY_CALLBACK */
+    }
     if (s->idle_ms > 0
         && now_us() - s->last_us >= (int64_t)s->idle_ms * 1000) {
         s->idle_fired = 1;
-        return 1; /* aborts the transfer with CURLE_ABORTED_BY_CALLBACK */
+        return 1; /* the same code; the kind is what tells them apart */
     }
     return 0;
 }
@@ -553,6 +600,10 @@ static struct HttpResponse *real_send(struct HttpRequest *r)
         return resp;
     }
     r->mode = 1;
+    if (r->cancel_requested) {
+        fill_cancel_error(resp, r->url, 1);
+        return resp;
+    }
 
     struct BodyBuf buf;
     buf.data = NULL;
@@ -566,19 +617,19 @@ static struct HttpResponse *real_send(struct HttpRequest *r)
     xfer.idle_ms = r->idle_timeout_ms;
     xfer.first_byte = 0;
     xfer.idle_fired = 0;
+    xfer.cancel_flag = &r->cancel_requested;
+    xfer.cancel_fired = 0;
+    xfer.aborted = 0;
     buf.xfer = &xfer;
 
     CURL *easy = (CURL *)r->easy;
     curl_easy_setopt(easy, CURLOPT_URL, r->url);
     curl_easy_setopt(easy, CURLOPT_WRITEFUNCTION, write_cb);
     curl_easy_setopt(easy, CURLOPT_WRITEDATA, &buf);
-    if (r->idle_timeout_ms > 0) {
-        curl_easy_setopt(easy, CURLOPT_NOPROGRESS, 0L);
-        curl_easy_setopt(easy, CURLOPT_XFERINFOFUNCTION, xfer_cb);
-        curl_easy_setopt(easy, CURLOPT_XFERINFODATA, &xfer);
-    } else {
-        curl_easy_setopt(easy, CURLOPT_NOPROGRESS, 1L);
-    }
+    /* Always installed: without it a cancelled stalled stream has no checkpoint. */
+    curl_easy_setopt(easy, CURLOPT_NOPROGRESS, 0L);
+    curl_easy_setopt(easy, CURLOPT_XFERINFOFUNCTION, xfer_cb);
+    curl_easy_setopt(easy, CURLOPT_XFERINFODATA, &xfer);
 
     int transport;
     int64_t started_us = now_us();
@@ -604,7 +655,12 @@ static struct HttpResponse *real_send(struct HttpRequest *r)
      * family stays one code.
      */
     int error = transport;
-    if (buf.limit_fired) {
+    if (xfer.cancel_fired) {
+        /* The flag stopped it, whatever CURLcode the abort surfaced as. */
+        error = (int)CURLE_ABORTED_BY_CALLBACK;
+        resp->cancelled = 1;
+        resp->timeout_kind = HTTP_TIMEOUT_NONE;
+    } else if (buf.limit_fired) {
         /* The local cap is more specific than the write error libcurl saw. */
         error = HTTP_LOCAL_ERR_BODY_LIMIT;
         resp->timeout_kind = HTTP_TIMEOUT_NONE;
@@ -645,8 +701,7 @@ struct StreamSink {
     size_t delivered;
     size_t max;
     int limit_fired;
-    int aborted;
-    struct XferState xfer;
+    struct XferState xfer; /* also carries cancel_fired and aborted */
 };
 
 static size_t stream_write_cb(char *ptr, size_t size, size_t nmemb, void *ud)
@@ -656,13 +711,18 @@ static size_t stream_write_cb(char *ptr, size_t size, size_t nmemb, void *ud)
     if (n == 0) {
         return 0;
     }
+    /* Checked before the user callback: a cancelled chunk is never delivered. */
+    if (s->xfer.cancel_flag != NULL && *s->xfer.cancel_flag) {
+        s->xfer.cancel_fired = 1;
+        return 0;
+    }
     if (s->max > 0 && s->delivered + n > s->max) {
         size_t keep = s->max - s->delivered;
         s->limit_fired = 1;
         if (keep > 0) {
             s->delivered = s->delivered + keep;
             if (s->cb != NULL && s->cb(ptr, (int)keep, s->ud) != 0) {
-                s->aborted = 1;
+                s->xfer.aborted = 1;
             }
             s->xfer.last_us = now_us();
             s->xfer.first_byte = 1;
@@ -674,7 +734,7 @@ static size_t stream_write_cb(char *ptr, size_t size, size_t nmemb, void *ud)
     s->xfer.last_us = now_us();
     s->xfer.first_byte = 1;
     if (s->cb != NULL && s->cb(ptr, (int)n, s->ud) != 0) {
-        s->aborted = 1;
+        s->xfer.aborted = 1;
         return 0; /* libcurl reports CURLE_WRITE_ERROR(23) */
     }
     return n;
@@ -713,6 +773,10 @@ static struct HttpResponse *real_send_stream(struct HttpRequest *r,
         return resp;
     }
     r->mode = 2;
+    if (r->cancel_requested) {
+        fill_cancel_error(resp, r->url, 0);
+        return resp;
+    }
 
     struct StreamSink sink;
     sink.cb = cb;
@@ -720,23 +784,22 @@ static struct HttpResponse *real_send_stream(struct HttpRequest *r,
     sink.delivered = 0;
     sink.max = r->max_body_bytes > 0 ? (size_t)r->max_body_bytes : 0;
     sink.limit_fired = 0;
-    sink.aborted = 0;
     sink.xfer.last_us = now_us();
     sink.xfer.idle_ms = r->idle_timeout_ms;
     sink.xfer.first_byte = 0;
     sink.xfer.idle_fired = 0;
+    sink.xfer.cancel_flag = &r->cancel_requested;
+    sink.xfer.cancel_fired = 0;
+    sink.xfer.aborted = 0;
 
     CURL *easy = (CURL *)r->easy;
     curl_easy_setopt(easy, CURLOPT_URL, r->url);
     curl_easy_setopt(easy, CURLOPT_WRITEFUNCTION, stream_write_cb);
     curl_easy_setopt(easy, CURLOPT_WRITEDATA, &sink);
-    if (r->idle_timeout_ms > 0) {
-        curl_easy_setopt(easy, CURLOPT_NOPROGRESS, 0L);
-        curl_easy_setopt(easy, CURLOPT_XFERINFOFUNCTION, xfer_cb);
-        curl_easy_setopt(easy, CURLOPT_XFERINFODATA, &sink.xfer);
-    } else {
-        curl_easy_setopt(easy, CURLOPT_NOPROGRESS, 1L);
-    }
+    /* Always installed: cancellation needs a checkpoint on a stalled stream. */
+    curl_easy_setopt(easy, CURLOPT_NOPROGRESS, 0L);
+    curl_easy_setopt(easy, CURLOPT_XFERINFOFUNCTION, xfer_cb);
+    curl_easy_setopt(easy, CURLOPT_XFERINFODATA, &sink.xfer);
 
     int transport;
     if (g_injected_curl_code != 0) {
@@ -751,7 +814,10 @@ static struct HttpResponse *real_send_stream(struct HttpRequest *r,
         curl_easy_getinfo(easy, CURLINFO_RESPONSE_CODE, &code);
     }
     resp->status = (int)code;
-    if (sink.aborted) {
+    if (sink.xfer.cancel_fired) {
+        resp->error = (int)CURLE_ABORTED_BY_CALLBACK;
+        resp->cancelled = 1;
+    } else if (sink.xfer.aborted) {
         resp->error = (int)CURLE_WRITE_ERROR;
     } else if (sink.limit_fired) {
         resp->error = HTTP_LOCAL_ERR_BODY_LIMIT;

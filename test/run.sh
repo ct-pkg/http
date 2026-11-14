@@ -112,6 +112,23 @@ run_asan_negative_server() {
     printf 'ok %s (ASAN rejected the stale pointer)\n' "$task"
 }
 
+# A negative fixture must abort under ASAN with a use-after-free report: this is
+# how the lifetime positive fixture proves the detector is really on.
+run_asan_negative_uaf_server() {
+    log="$tmp/$task.build.log"
+    "$CC_BIN" -std=c99 -g -fsanitize=address -Wall -Wextra -Werror \
+        -I "$repo/src/http" -I "$fixtures" \
+        "$fixtures/$task.c" "$fixtures/p4-server.c" "$repo/src/http/http.shim.c" \
+        -lcurl -o "$tmp/$task" >"$log" 2>&1 \
+        || { cat "$log" >&2; fail "cc -fsanitize=address failed"; }
+    ASAN_OPTIONS=detect_leaks=0 "$tmp/$task" >"$tmp/$task.out" 2>&1
+    rc=$?
+    [ "$rc" -ne 0 ] || { cat "$tmp/$task.out" >&2; fail "sanitizer did not abort"; }
+    grep -q 'heap-use-after-free' "$tmp/$task.out" \
+        || { cat "$tmp/$task.out" >&2; fail "no use-after-free report"; }
+    printf 'ok %s (ASAN rejected the stale request pointer)\n' "$task"
+}
+
 # The CT object must not reference curl: only http.shim.c may.
 run_nm() {
     emit="$tmp/emit-$task"
@@ -298,6 +315,18 @@ p7-idle | p7-slow)
     ;;
 p7-mutex)
     run_cc_server
+    ;;
+p8-cancel | p8-not-cancelled)
+    run_cc_server
+    ;;
+p8-lifetime)
+    run_asan_positive_server
+    ;;
+p8-lifetime-bad)
+    run_asan_negative_uaf_server
+    ;;
+p8-chain)
+    run_ct_server
     ;;
 phase1_no_mapping)
     run_negative
