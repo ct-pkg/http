@@ -21,6 +21,7 @@ pub trait RequestBuilder {
     CRequest *header(char *name, char *value);
     CRequest *timeout(int ms);
     CRequest *idle_timeout(int ms);
+    CRequest *max_body_bytes(int n);
     CRequest *connect_timeout(int ms);
     CRequest *body(char *data, int len);
     CRequest *user_agent(char *ua);
@@ -55,6 +56,7 @@ map trait RequestBuilder for type CRequest * {
     header(r, name, value)      -> http_request_header(r, name, value);
     timeout(r, ms)              -> http_request_timeout(r, ms);
     idle_timeout(r, ms)         -> http_request_idle_timeout(r, ms);
+    max_body_bytes(r, n)        -> http_request_max_body_bytes(r, n);
     connect_timeout(r, ms)      -> http_request_connect_timeout(r, ms);
     body(r, data, len)          -> http_request_body(r, data, len);
     user_agent(r, ua)           -> http_request_user_agent(r, ua);

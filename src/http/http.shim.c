@@ -85,6 +85,7 @@ struct HttpRequest *http_request_new(const char *url)
     r->insecure = 0;
     r->follow_redirects = 0;
     r->idle_timeout_ms = 0;
+    r->max_body_bytes = 0;
     r->user_agent = dup_string(HTTP_DEFAULT_USER_AGENT);
     if (!has_http_scheme(r->url)) {
         r->local_error = HTTP_LOCAL_ERR_SCHEME;
@@ -199,6 +200,21 @@ struct HttpRequest *http_request_idle_timeout(struct HttpRequest *r, int ms)
         return r;
     }
     r->idle_timeout_ms = ms;
+    return r;
+}
+
+struct HttpRequest *http_request_max_body_bytes(struct HttpRequest *r, int n)
+{
+    if (r == NULL) {
+        return NULL;
+    }
+    if (n < 0) {
+        if (r->local_error == 0) {
+            r->local_error = HTTP_LOCAL_ERR_ARG;
+        }
+        return r;
+    }
+    r->max_body_bytes = n;
     return r;
 }
 
@@ -333,6 +349,9 @@ static void host_part(const char *url, char *out, size_t cap)
 
 static const char *error_stage(int code)
 {
+    if (code == HTTP_LOCAL_ERR_BODY_LIMIT) {
+        return "body-limit";
+    }
     if (code < 0) {
         return "local";
     }
@@ -366,12 +385,15 @@ static char *make_error_msg(const char *url, int code)
 }
 
 /* Same inputs give the same string; nothing here is time or address based. */
-static char *make_error_detail(const char *url, int code, int kind)
+static char *make_error_detail(const char *url, int code, int kind, int limit)
 {
     char host[128];
     char buf[384];
     host_part(url, host, sizeof host);
-    if (kind == HTTP_TIMEOUT_NONE) {
+    if (code == HTTP_LOCAL_ERR_BODY_LIMIT) {
+        snprintf(buf, sizeof buf, "code=%d stage=%s limit=%d host=%s", code,
+                 error_stage(code), limit, host);
+    } else if (kind == HTTP_TIMEOUT_NONE) {
         snprintf(buf, sizeof buf, "code=%d stage=%s host=%s", code,
                  error_stage(code), host);
     } else {
@@ -402,8 +424,32 @@ struct BodyBuf {
     char *data;
     size_t len;
     size_t cap;
+    size_t max;
+    int limit_fired;
     struct XferState *xfer;
 };
+
+/* 0 on success, -1 when realloc fails (libcurl then reports 23). */
+static int body_append(struct BodyBuf *b, const char *ptr, size_t n)
+{
+    if (b->len + n + 1 > b->cap) {
+        size_t cap = b->cap != 0 ? b->cap : 128;
+        char *grown;
+        while (cap < b->len + n + 1) {
+            cap = cap * 2;
+        }
+        grown = (char *)realloc(b->data, cap);
+        if (grown == NULL) {
+            return -1;
+        }
+        b->data = grown;
+        b->cap = cap;
+    }
+    memcpy(b->data + b->len, ptr, n);
+    b->len = b->len + n;
+    b->data[b->len] = '\0';
+    return 0;
+}
 
 static size_t write_cb(char *ptr, size_t size, size_t nmemb, void *ud)
 {
@@ -412,21 +458,27 @@ static size_t write_cb(char *ptr, size_t size, size_t nmemb, void *ud)
     if (n == 0) {
         return 0;
     }
-    if (b->len + n + 1 > b->cap) {
-        size_t cap = b->cap != 0 ? b->cap : 128;
-        while (cap < b->len + n + 1) {
-            cap = cap * 2;
+    /*
+     * Option A cap: deliver exactly max bytes, then stop. Equal to the cap is
+     * not an overflow, so an exactly-max response still succeeds.
+     */
+    if (b->max > 0 && b->len + n > b->max) {
+        size_t keep = b->max - b->len;
+        b->limit_fired = 1;
+        if (keep > 0) {
+            if (body_append(b, ptr, keep) != 0) {
+                return 0;
+            }
+            if (b->xfer != NULL) {
+                b->xfer->last_us = now_us();
+                b->xfer->first_byte = 1;
+            }
         }
-        char *grown = (char *)realloc(b->data, cap);
-        if (grown == NULL) {
-            return 0; /* aborts the transfer with CURLE_WRITE_ERROR */
-        }
-        b->data = grown;
-        b->cap = cap;
+        return 0;
     }
-    memcpy(b->data + b->len, ptr, n);
-    b->len = b->len + n;
-    b->data[b->len] = '\0';
+    if (body_append(b, ptr, n) != 0) {
+        return 0; /* aborts the transfer with CURLE_WRITE_ERROR */
+    }
     if (b->xfer != NULL) {
         b->xfer->last_us = now_us();
         b->xfer->first_byte = 1;
@@ -480,7 +532,7 @@ static struct HttpResponse *real_send(struct HttpRequest *r)
         resp->body = dup_string("");
         resp->error_msg = make_error_msg(r->url != NULL ? r->url : "", local);
         resp->error_detail =
-            make_error_detail(r->url != NULL ? r->url : "", local, HTTP_TIMEOUT_NONE);
+            make_error_detail(r->url != NULL ? r->url : "", local, HTTP_TIMEOUT_NONE, 0);
         return resp;
     }
 
@@ -488,6 +540,8 @@ static struct HttpResponse *real_send(struct HttpRequest *r)
     buf.data = NULL;
     buf.len = 0;
     buf.cap = 0;
+    buf.max = r->max_body_bytes > 0 ? (size_t)r->max_body_bytes : 0;
+    buf.limit_fired = 0;
 
     struct XferState xfer;
     xfer.last_us = now_us();
@@ -532,7 +586,11 @@ static struct HttpResponse *real_send(struct HttpRequest *r)
      * family stays one code.
      */
     int error = transport;
-    if (transport == (int)CURLE_OPERATION_TIMEDOUT) {
+    if (buf.limit_fired) {
+        /* The local cap is more specific than the write error libcurl saw. */
+        error = HTTP_LOCAL_ERR_BODY_LIMIT;
+        resp->timeout_kind = HTTP_TIMEOUT_NONE;
+    } else if (transport == (int)CURLE_OPERATION_TIMEDOUT) {
         curl_off_t connect_us = 0;
         if (g_injected_curl_code == 0) {
             curl_easy_getinfo(easy, CURLINFO_CONNECT_TIME_T, &connect_us);
@@ -555,7 +613,9 @@ static struct HttpResponse *real_send(struct HttpRequest *r)
     resp->total_bytes = (int)buf.len;
     if (error != 0) {
         resp->error_msg = make_error_msg(r->url, error);
-        resp->error_detail = make_error_detail(r->url, error, resp->timeout_kind);
+        resp->error_detail = make_error_detail(
+            r->url, error, resp->timeout_kind,
+            error == HTTP_LOCAL_ERR_BODY_LIMIT ? (int)buf.max : 0);
     }
     return resp;
 }
@@ -565,6 +625,8 @@ struct StreamSink {
     HttpChunkCb cb;
     void *ud;
     size_t delivered;
+    size_t max;
+    int limit_fired;
     int aborted;
 };
 
@@ -573,6 +635,17 @@ static size_t stream_write_cb(char *ptr, size_t size, size_t nmemb, void *ud)
     struct StreamSink *s = (struct StreamSink *)ud;
     size_t n = size * nmemb;
     if (n == 0) {
+        return 0;
+    }
+    if (s->max > 0 && s->delivered + n > s->max) {
+        size_t keep = s->max - s->delivered;
+        s->limit_fired = 1;
+        if (keep > 0) {
+            s->delivered = s->delivered + keep;
+            if (s->cb != NULL && s->cb(ptr, (int)keep, s->ud) != 0) {
+                s->aborted = 1;
+            }
+        }
         return 0;
     }
     /* Count before the call: the chunk was handed over even if it aborts. */
@@ -608,7 +681,7 @@ static struct HttpResponse *real_send_stream(struct HttpRequest *r,
         resp->error = local;
         resp->error_msg = make_error_msg(r->url != NULL ? r->url : "", local);
         resp->error_detail =
-            make_error_detail(r->url != NULL ? r->url : "", local, HTTP_TIMEOUT_NONE);
+            make_error_detail(r->url != NULL ? r->url : "", local, HTTP_TIMEOUT_NONE, 0);
         return resp;
     }
 
@@ -616,6 +689,8 @@ static struct HttpResponse *real_send_stream(struct HttpRequest *r,
     sink.cb = cb;
     sink.ud = ud;
     sink.delivered = 0;
+    sink.max = r->max_body_bytes > 0 ? (size_t)r->max_body_bytes : 0;
+    sink.limit_fired = 0;
     sink.aborted = 0;
 
     CURL *easy = (CURL *)r->easy;
@@ -637,12 +712,19 @@ static struct HttpResponse *real_send_stream(struct HttpRequest *r,
         curl_easy_getinfo(easy, CURLINFO_RESPONSE_CODE, &code);
     }
     resp->status = (int)code;
-    resp->error = sink.aborted ? (int)CURLE_WRITE_ERROR : transport;
+    if (sink.aborted) {
+        resp->error = (int)CURLE_WRITE_ERROR;
+    } else if (sink.limit_fired) {
+        resp->error = HTTP_LOCAL_ERR_BODY_LIMIT;
+    } else {
+        resp->error = transport;
+    }
     resp->total_bytes = (int)sink.delivered;
     if (resp->error != 0) {
         resp->error_msg = make_error_msg(r->url, resp->error);
-        resp->error_detail =
-            make_error_detail(r->url, resp->error, HTTP_TIMEOUT_NONE);
+        resp->error_detail = make_error_detail(
+            r->url, resp->error, HTTP_TIMEOUT_NONE,
+            resp->error == HTTP_LOCAL_ERR_BODY_LIMIT ? (int)sink.max : 0);
     }
     return resp;
 }

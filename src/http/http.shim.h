@@ -46,6 +46,7 @@ struct HttpRequest {
     int insecure;         /* 0 = verify peer/host, the default */
     int follow_redirects; /* 0 = do not follow, the default */
     int idle_timeout_ms;  /* 0 = no idle limit; gap since the last data byte */
+    int max_body_bytes;   /* 0 = unlimited; reaching it aborts with -1008 */
     char *user_agent;     /* owned; defaults to HTTP_DEFAULT_USER_AGENT */
 };
 
@@ -59,6 +60,7 @@ struct HttpRequest {
 #define HTTP_LOCAL_ERR_SCHEME (-1004)
 #define HTTP_LOCAL_ERR_TIMEOUT (-1005)
 #define HTTP_LOCAL_ERR_NO_HANDLE (-1006)
+#define HTTP_LOCAL_ERR_BODY_LIMIT (-1008)
 
 #define HTTP_DEFAULT_USER_AGENT "ct-http/0.1.0"
 
@@ -72,7 +74,10 @@ struct HttpResponse {
     int status;
     char *body;       /* owned by the response; not a C string, use body_len */
     int body_len;     /* bytes in body, so an embedded NUL survives */
-    int total_bytes;  /* bytes accumulated by the write callback */
+    int total_bytes;  /* response body bytes handed to the sink: the built-in
+                         buffer when not streaming, the chunk callback when
+                         streaming. Excludes headers, chunked framing and TLS;
+                         capped at max_body_bytes when that limit fires. */
     int error;        /* 0, a positive CURLcode, or a negative local code */
     char *error_msg;  /* owned; "<stage>: <host> (code N)", NULL when clean */
     char *error_detail; /* owned; "code=N stage=S host=H", reproducible */
@@ -87,6 +92,11 @@ struct HttpRequest *http_request_header(struct HttpRequest *r,
                                         const char *value);
 struct HttpRequest *http_request_timeout(struct HttpRequest *r, int ms);
 struct HttpRequest *http_request_idle_timeout(struct HttpRequest *r, int ms);
+/* Response-body cap: 0 = unlimited, n < 0 is a local -1001 rejection. When
+   the delivered bytes would exceed n, the transfer stops at exactly n and
+   error() is HTTP_LOCAL_ERR_BODY_LIMIT. total_bytes() then equals n, never a
+   hypothetical "server would have sent" figure. */
+struct HttpRequest *http_request_max_body_bytes(struct HttpRequest *r, int n);
 struct HttpRequest *http_request_body(struct HttpRequest *r,
                                       const char *data,
                                       int len);
