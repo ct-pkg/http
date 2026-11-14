@@ -251,6 +251,9 @@ p4-refused)
 p4-timeout)
     run_cc_server
     ;;
+p5-local)
+    run_cc
+    ;;
 phase1_no_mapping)
     run_negative
     ;;

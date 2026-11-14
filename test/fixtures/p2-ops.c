@@ -17,6 +17,7 @@ static struct HttpResponse *fake_send(struct HttpRequest *r)
 
     struct HttpResponse *res = (struct HttpResponse *)malloc(sizeof(struct HttpResponse));
     if (res == NULL) return NULL;
+    memset(res, 0, sizeof *res);
 
     const char *text = "teapot";
     size_t n = strlen(text) + 1;
