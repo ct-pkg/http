@@ -281,6 +281,12 @@ p6-idle)
 p6-negative)
     run_cc_server
     ;;
+p7-chunks)
+    run_asan_positive_server
+    ;;
+p7-body-nul | p7-chunked)
+    run_cc_server
+    ;;
 phase1_no_mapping)
     run_negative
     ;;

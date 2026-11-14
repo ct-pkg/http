@@ -16,6 +16,11 @@
  *   /binary  200, 3 bytes a NUL b
  *   /split   200, {"users":3} written in two writes with a delay
  *   /hang    sleeps 5s before the 200, so a short timeout fires first
+ *   /big     200, 1 MiB pattern, split writes so a stream sees >=2 chunks
+ *   /echo    200, echoes the request body with an explicit Content-Length
+ *   /chunked 200, Transfer-Encoding: chunked, no Content-Length
+ *   /slow4   200, one byte per second for four bytes
+ *   /stall2  200, one byte then a two-second pause
  *   other    200, body {"users":3}
  *
  * POSIX only, no external network access, one server per fixture process.

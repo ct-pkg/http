@@ -84,7 +84,16 @@ static void send_all(int fd, const char *data, size_t len)
     }
 }
 
-static void route(int fd, const char *path)
+static void sleep_ms(int ms)
+{
+    struct timeval tv;
+    tv.tv_sec = ms / 1000;
+    tv.tv_usec = (ms % 1000) * 1000;
+    select(0, NULL, NULL, NULL, &tv);
+}
+
+static void route(int fd, const char *path, const char *req_body,
+                  size_t req_body_len)
 {
     if (strcmp(path, "/binary") == 0) {
         static const char head[] =
@@ -122,6 +131,63 @@ static void route(int fd, const char *path)
                 select(0, NULL, NULL, NULL, &tv);
             }
         }
+    } else if (strcmp(path, "/big") == 0) {
+        static const char head[] =
+            "HTTP/1.1 200 OK\r\nContent-Length: 1048576\r\nConnection: close\r\n\r\n";
+        char chunk[16384];
+        size_t sent = 0;
+        send_all(fd, head, sizeof head - 1);
+        while (sent < 1048576) {
+            size_t n = sizeof chunk;
+            size_t i;
+            if (n > 1048576 - sent) {
+                n = 1048576 - sent;
+            }
+            for (i = 0; i < n; i++) {
+                chunk[i] = (char)((sent + i) & 0xff);
+            }
+            send_all(fd, chunk, n);
+            sent += n;
+            if (sent == 524288) {
+                sleep_ms(50); /* force at least two write callbacks */
+            }
+        }
+    } else if (strcmp(path, "/echo") == 0) {
+        char head[128];
+        int hn = snprintf(head, sizeof head,
+                          "HTTP/1.1 200 OK\r\nContent-Length: %d\r\n"
+                          "Connection: close\r\n\r\n",
+                          (int)req_body_len);
+        send_all(fd, head, (size_t)hn);
+        if (req_body_len > 0) {
+            send_all(fd, req_body, req_body_len);
+        }
+    } else if (strcmp(path, "/chunked") == 0) {
+        static const char head[] =
+            "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n"
+            "Connection: close\r\n\r\n";
+        send_all(fd, head, sizeof head - 1);
+        send_all(fd, "5\r\nalpha\r\n", 10);
+        send_all(fd, "4\r\nbeta\r\n", 9);
+        send_all(fd, "5\r\ngamma\r\n", 10);
+        send_all(fd, "0\r\n\r\n", 5);
+    } else if (strcmp(path, "/slow4") == 0) {
+        static const char head[] =
+            "HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\n";
+        int i;
+        send_all(fd, head, sizeof head - 1);
+        for (i = 0; i < 4; i++) {
+            send_all(fd, "x", 1);
+            if (i < 3) {
+                sleep_ms(1000);
+            }
+        }
+    } else if (strcmp(path, "/stall2") == 0) {
+        static const char head[] =
+            "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n";
+        send_all(fd, head, sizeof head - 1);
+        send_all(fd, "x", 1);
+        sleep_ms(2000);
     } else if (strcmp(path, "/hang") == 0) {
         static const char resp[] =
             "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok";
@@ -179,8 +245,12 @@ static void serve(int fd, int *count)
         }
     }
 
+    int he = header_end(buf, len);
+    const char *body = he >= 0 ? buf + he : buf + len;
+    size_t body_len = he >= 0 ? len - (size_t)he : 0;
+
     *count = *count + 1;
-    route(fd, path);
+    route(fd, path, body, body_len);
 }
 
 int p4_server_start(void)
