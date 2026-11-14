@@ -67,6 +67,35 @@ run_nm() {
     printf 'ok %s (no curl symbols in the CT object)\n' "$task"
 }
 
+run_cc() {
+    log="$tmp/$task.build.log"
+    "$CC_BIN" -std=c99 -Wall -Wextra -Werror -I "$repo/src/http" \
+        "$fixtures/$task.c" "$repo/src/http/http.shim.c" -lcurl \
+        -o "$tmp/$task" >"$log" 2>&1 \
+        || { cat "$log" >&2; fail "cc failed"; }
+    "$tmp/$task" >"$tmp/$task.out" 2>&1 \
+        || { cat "$tmp/$task.out" >&2; fail "fixture failed"; }
+    diff -u "$fixtures/$task.expected.out" "$tmp/$task.out" \
+        || fail "output mismatch"
+    printf 'ok %s\n' "$task"
+}
+
+# A negative fixture must abort under ASAN with a double-free report.
+run_asan_negative() {
+    log="$tmp/$task.build.log"
+    "$CC_BIN" -std=c99 -g -fsanitize=address -Wall -Wextra -Werror \
+        -I "$repo/src/http" \
+        "$fixtures/$task.c" "$repo/src/http/http.shim.c" -lcurl \
+        -o "$tmp/$task" >"$log" 2>&1 \
+        || { cat "$log" >&2; fail "cc -fsanitize=address failed"; }
+    ASAN_OPTIONS=detect_leaks=0 "$tmp/$task" >"$tmp/$task.out" 2>&1
+    rc=$?
+    [ "$rc" -ne 0 ] || { cat "$tmp/$task.out" >&2; fail "sanitizer did not abort"; }
+    grep -q 'double-free' "$tmp/$task.out" \
+        || { cat "$tmp/$task.out" >&2; fail "no double-free report"; }
+    printf 'ok %s (ASAN rejected the stale pointer)\n' "$task"
+}
+
 run_negative() {
     log="$tmp/$task.build.log"
     (
@@ -106,6 +135,11 @@ p2-cleanup-once)
     ;;
 p2-nm)
     run_nm
+    ;;
+p2-double-free)
+    run_cc
+    task=p2-double-free-bad
+    run_asan_negative
     ;;
 phase1_no_mapping)
     run_negative
