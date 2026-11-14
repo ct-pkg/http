@@ -203,6 +203,9 @@ p3-chain)
 p4-status)
     run_cc_server
     ;;
+p4-binary | p4-split)
+    run_cc_server
+    ;;
 phase1_no_mapping)
     run_negative
     ;;
