@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 #
-# test/run.sh - run one H1/H2... fixture.
+# test/run.sh - run one phase fixture.
 #
-#   bash test/run.sh h1-t1
+#   bash test/run.sh phase1_abi
 #
-# A fixture is test/fixtures/<task-id>.ct plus <task-id>.expected.out. Neither
-# exists yet: this script exits 2 for every task-id instead of reporting a
-# vacuous pass.
+# Each fixture is built with zero warnings, run, and compared byte-for-byte
+# against <task>.expected.out. A task without a wired fixture exits 2 instead
+# of reporting a vacuous pass.
 #
 # License: MIT (see LICENSE).
 
@@ -19,13 +19,36 @@ if [ -z "$task" ]; then
 fi
 
 here="$(cd "$(dirname "$0")" && pwd)"
-src="$here/fixtures/$task.ct"
-exp="$here/fixtures/$task.expected.out"
+repo="$(cd "$here/.." && pwd)"
+fixtures="$repo/test/fixtures"
+CT_BIN="${CT_BIN:-/Users/samxx/.local/bin/ct}"
+CC_BIN="${CC:-cc}"
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
 
-if [ ! -f "$src" ] || [ ! -f "$exp" ]; then
-    echo "no fixture for '$task' (expected $src and $exp); nothing ran" >&2
+fail() {
+    printf 'FAIL %s: %s\n' "$task" "$1" >&2
+    exit 1
+}
+
+run_abi() {
+    log="$tmp/$task.build.log"
+    "$CC_BIN" -std=c99 -Wall -Wextra -Werror -I "$repo/src/http" \
+        "$fixtures/phase1_abi.c" -o "$tmp/phase1_abi" >"$log" 2>&1 \
+        || { cat "$log" >&2; fail "cc failed"; }
+    "$tmp/phase1_abi" >"$tmp/phase1_abi.out" 2>&1 \
+        || { cat "$tmp/phase1_abi.out" >&2; fail "abi fixture failed"; }
+    diff -u "$fixtures/phase1_abi.expected.out" "$tmp/phase1_abi.out" \
+        || fail "output mismatch"
+    printf 'ok %s\n' "$task"
+}
+
+case "$task" in
+phase1_abi)
+    run_abi
+    ;;
+*)
+    echo "no wired fixture for '$task'; nothing ran" >&2
     exit 2
-fi
-
-echo "$task: fixture exists but the runner is not wired yet (H1-T1)" >&2
-exit 2
+    ;;
+esac
