@@ -49,6 +49,8 @@ struct HttpRequest *http_request_new(const char *url)
     ensure_curl_global();
     r->headers = 0;
     r->timeout_ms = 0;
+    r->headers_slist = NULL;
+    r->local_error = 0;
     r->easy = curl_easy_init();
     if (r->easy != NULL) {
         g_easy_init_count = g_easy_init_count + 1;
@@ -57,13 +59,61 @@ struct HttpRequest *http_request_new(const char *url)
     return r;
 }
 
+static int has_crlf(const char *s)
+{
+    return s != NULL && (strchr(s, '\r') != NULL || strchr(s, '\n') != NULL);
+}
+
+/* "name: value", owned by the caller until it lands in the slist. */
+static char *join_header(const char *name, const char *value)
+{
+    size_t nl = strlen(name);
+    size_t vl = strlen(value);
+    char *line = (char *)malloc(nl + 2 + vl + 1);
+    if (line == NULL) {
+        return NULL;
+    }
+    memcpy(line, name, nl);
+    line[nl] = ':';
+    line[nl + 1] = ' ';
+    memcpy(line + nl + 2, value, vl + 1);
+    return line;
+}
+
 struct HttpRequest *http_request_header(struct HttpRequest *r,
                                         const char *name,
                                         const char *value)
 {
-    if (name != NULL && value != NULL) {
-        r->headers = r->headers + 1;
+    if (r == NULL) {
+        return NULL;
     }
+    /* A CR/LF would let the caller append a second header line. */
+    if (name == NULL || value == NULL || has_crlf(name) || has_crlf(value)) {
+        if (r->local_error == 0) {
+            r->local_error = HTTP_LOCAL_ERR_HEADER;
+        }
+        return r;
+    }
+
+    char *line = join_header(name, value);
+    if (line == NULL) {
+        if (r->local_error == 0) {
+            r->local_error = HTTP_LOCAL_ERR_HEADER;
+        }
+        return r;
+    }
+
+    struct curl_slist *next = curl_slist_append((struct curl_slist *)r->headers_slist, line);
+    free(line);
+    if (next == NULL) {
+        if (r->local_error == 0) {
+            r->local_error = HTTP_LOCAL_ERR_HEADER;
+        }
+        return r;
+    }
+
+    r->headers_slist = next;
+    r->headers = r->headers + 1;
     return r;
 }
 
@@ -125,6 +175,8 @@ static void request_destroy(struct HttpRequest *r)
     /* The request owns its URL from the factory onward. */
     free(r->url);
     r->url = NULL;
+    curl_slist_free_all((struct curl_slist *)r->headers_slist);
+    r->headers_slist = NULL;
     free(r);
 }
 
@@ -173,3 +225,15 @@ void http_response_release(struct HttpResponse *r)
 int http_shim_easy_init_count(void) { return g_easy_init_count; }
 int http_shim_easy_cleanup_count(void) { return g_easy_cleanup_count; }
 int http_shim_response_free_count(void) { return g_response_free_count; }
+
+const char *http_shim_header_line(struct HttpRequest *r, int index)
+{
+    if (r == NULL || index < 0) {
+        return NULL;
+    }
+    struct curl_slist *node = (struct curl_slist *)r->headers_slist;
+    for (int i = 0; node != NULL && i < index; i++) {
+        node = node->next;
+    }
+    return node != NULL ? node->data : NULL;
+}

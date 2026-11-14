@@ -23,12 +23,20 @@ struct HttpRequestOps {
 };
 
 struct HttpRequest {
-    char *url;        /* borrowed until phase 3 takes ownership */
+    char *url;        /* owned by the request since phase 3 */
     int headers;
     int timeout_ms;
     void *easy;       /* CURL *; opaque so this header stays curl-free */
     const struct HttpRequestOps *ops;
+    void *headers_slist; /* struct curl_slist *; opaque */
+    int local_error;     /* first local validation error, 0 = none */
 };
+
+/*
+ * Local validation codes are negative so they never collide with a CURLcode.
+ * They are not the public error surface (see S-05); phase 5 decides that.
+ */
+#define HTTP_LOCAL_ERR_HEADER (-1002)
 
 struct HttpResponse {
     int status;
@@ -68,5 +76,8 @@ void http_response_release(struct HttpResponse *r);
 int http_shim_easy_init_count(void);
 int http_shim_easy_cleanup_count(void);
 int http_shim_response_free_count(void);
+
+/* Test hook: the index-th accepted header as "Name: value", NULL past the end. */
+const char *http_shim_header_line(struct HttpRequest *r, int index);
 
 #endif
