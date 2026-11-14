@@ -122,4 +122,5 @@ chunked 或连接关闭即结束的响应由 libcurl 解码，写回调看到的
 | `error_msg()` / `error_detail()` | 响应 | `http_response_free()` |
 
 ASAN 覆盖：`p7-chunks`（回调复制 1 MiB 后释放自己的缓冲）、`p7-limit`（`take_body`
-取走 1024 字节后释放）、`p7-idle`（流式与部分保留两条路径）。
+取走 1024 字节后释放）。`p7-idle` 的两条路径由普通构建验证逻辑，所有权路径与上述
+两个 ASAN 用例同源。
