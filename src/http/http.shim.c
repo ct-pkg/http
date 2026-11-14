@@ -34,12 +34,19 @@ static char *dup_string(const char *s)
 
 struct HttpRequest *http_request_new(const char *url)
 {
+    if (url == NULL) {
+        return NULL;
+    }
     struct HttpRequest *r = (struct HttpRequest *)malloc(sizeof(struct HttpRequest));
     if (r == NULL) {
         return NULL;
     }
+    r->url = dup_string(url);
+    if (r->url == NULL) {
+        free(r);
+        return NULL;
+    }
     ensure_curl_global();
-    r->url = (char *)url;
     r->headers = 0;
     r->timeout_ms = 0;
     r->easy = curl_easy_init();
@@ -115,7 +122,9 @@ static void request_destroy(struct HttpRequest *r)
         g_easy_cleanup_count = g_easy_cleanup_count + 1;
         r->easy = NULL;
     }
-    /* r->url stays borrowed until phase 3 copies it. */
+    /* The request owns its URL from the factory onward. */
+    free(r->url);
+    r->url = NULL;
     free(r);
 }
 
