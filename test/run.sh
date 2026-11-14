@@ -150,6 +150,9 @@ p2-response-free)
 p2-ops)
     run_cc
     ;;
+p3-url-own)
+    run_cc
+    ;;
 phase1_no_mapping)
     run_negative
     ;;
