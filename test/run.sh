@@ -159,6 +159,9 @@ p3-header-crlf)
 p3-body-nul)
     run_cc
     ;;
+p3-scheme)
+    run_cc
+    ;;
 phase1_no_mapping)
     run_negative
     ;;
