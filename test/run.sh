@@ -245,6 +245,12 @@ p4-take-body)
 p4-take-body-bad)
     run_asan_negative_server
     ;;
+p4-refused)
+    run_cc
+    ;;
+p4-timeout)
+    run_cc_server
+    ;;
 phase1_no_mapping)
     run_negative
     ;;
