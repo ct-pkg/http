@@ -79,6 +79,39 @@ run_cc_server() {
     printf 'ok %s\n' "$task"
 }
 
+# A positive fixture must finish under ASAN with no report at all.
+run_asan_positive_server() {
+    log="$tmp/$task.build.log"
+    "$CC_BIN" -std=c99 -g -fsanitize=address -Wall -Wextra -Werror \
+        -I "$repo/src/http" -I "$fixtures" \
+        "$fixtures/$task.c" "$fixtures/p4-server.c" "$repo/src/http/http.shim.c" \
+        -lcurl -o "$tmp/$task" >"$log" 2>&1 \
+        || { cat "$log" >&2; fail "cc -fsanitize=address failed"; }
+    ASAN_OPTIONS=detect_leaks=0 "$tmp/$task" >"$tmp/$task.out" 2>&1
+    rc=$?
+    [ "$rc" -eq 0 ] || { cat "$tmp/$task.out" >&2; fail "sanitizer aborted a legal program"; }
+    grep -q 'AddressSanitizer' "$tmp/$task.out" \
+        && { cat "$tmp/$task.out" >&2; fail "sanitizer emitted a report"; }
+    diff -u "$fixtures/$task.expected.out" "$tmp/$task.out" \
+        || fail "output mismatch"
+    printf 'ok %s (ASAN clean)\n' "$task"
+}
+
+run_asan_negative_server() {
+    log="$tmp/$task.build.log"
+    "$CC_BIN" -std=c99 -g -fsanitize=address -Wall -Wextra -Werror \
+        -I "$repo/src/http" -I "$fixtures" \
+        "$fixtures/$task.c" "$fixtures/p4-server.c" "$repo/src/http/http.shim.c" \
+        -lcurl -o "$tmp/$task" >"$log" 2>&1 \
+        || { cat "$log" >&2; fail "cc -fsanitize=address failed"; }
+    ASAN_OPTIONS=detect_leaks=0 "$tmp/$task" >"$tmp/$task.out" 2>&1
+    rc=$?
+    [ "$rc" -ne 0 ] || { cat "$tmp/$task.out" >&2; fail "sanitizer did not abort"; }
+    grep -q 'double-free' "$tmp/$task.out" \
+        || { cat "$tmp/$task.out" >&2; fail "no double-free report"; }
+    printf 'ok %s (ASAN rejected the stale pointer)\n' "$task"
+}
+
 # The CT object must not reference curl: only http.shim.c may.
 run_nm() {
     emit="$tmp/emit-$task"
@@ -205,6 +238,12 @@ p4-status)
     ;;
 p4-binary | p4-split)
     run_cc_server
+    ;;
+p4-take-body)
+    run_asan_positive_server
+    ;;
+p4-take-body-bad)
+    run_asan_negative_server
     ;;
 phase1_no_mapping)
     run_negative
