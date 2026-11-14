@@ -40,7 +40,11 @@
 - `HttpChunkCb`（`int (*)(char *data, int len, void *ud)`）+ `http_request_send_stream(r, cb, ud)`；
   CT `.send_stream(cb, ud)`。回调拿到的 `data` 只在本次调用内有效，跨回调保留必须自行复制。
 - 回调返回非 0 → 写回调返回 0 → `CURLE_WRITE_ERROR(23)`；`is_cancelled` 保持 0。
-- `http_request_max_body_bytes(r, n)` + CT `.max_body_bytes(n)`；`n==0` 不限，`n<0` 本地 `-1001`。
+- `http_request_max_body_bytes(r, n)` + CT `.max_body_bytes(n)`：响应体上限。`n==0` 为默认值，
+  来源是 `http_request_new` 的 `max_body_bytes=0`（不限）；`n<0` 本地 `-1001`；累计到上限
+  立即中止，`error()` 为 `-1008`，`total_bytes()` 等于上限，非流式保留前 `n` 字节、流式
+  已交付前缀归回调。此配置入口在原卡 §2.1 漏写，属**补卡**，不是范围外的临时加料；
+  实现见 `feat(http): PH7-T3 响应体上限`。
 - `HTTP_LOCAL_ERR_BODY_LIMIT (-1008)`：达到上限立即中止；`total_bytes` 与保留的 `body_len`
   都等于上限；流式 `body_len==0`、`total_bytes==上限`。
 - `HTTP_LOCAL_ERR_STATE (-1007)`：同一请求对象混用 `send()` / `send_stream()`；在连接前返回。
@@ -49,7 +53,7 @@
   解码后计数；不含 chunked 框架、TLS、响应头，也不含未交付的字节；达到上限时等于上限，
   不报告服务器“原本会发多少”。非流式成功时 `body_len==total_bytes`；流式恒 `body_len==0`、
   `body()==NULL`、`take_body()==NULL`。
-- 流式 idle：沿用 PH-6 的 `XferState`；`/stall` 中 `idle_timeout(500)` 中止后读 `28/3`，
+- 流式 idle：沿用 PH-6 的 `XferState`；`/stall2` 中 `idle_timeout(500)` 中止后读 `28/3`，
   已交付的字节留在回调侧，`total_bytes` 等于已交付字节；非流式保留已收前缀，`take_body`
   可取到该前缀。
 - `test/fixtures/p4-server.c` 增加 `/big`（1 MB）、`/echo`（回显请求体）、`/chunked`
@@ -66,9 +70,15 @@
 - 不用 `CURLOPT_LOW_SPEED_LIMIT` / `LOW_SPEED_TIME`。
 - 不做异步、多路复用、断点续传、回调内重入、跨线程。
 - 不新增与 `-1001…-1006` 冲突的本地码；`-1007`、`-1008` 是追加，不改旧值。
-- 不改 `docs/requirements.md`、`docs/design.md`。R-12 的「与 body 同时设置」按「响应累积
-  模式与流式模式互斥」解释；**请求体上传与流式响应共存**，因为本 phase 的 `\0` 用例要求
-  这一点。若评审要求按 R-12 字面禁止请求体 + 流式响应，停下报告，不自改条款。
+- R-12 落地口径（2026-11-15 裁定）：**`send()` 与 `send_stream()` 互斥**。同一请求对象
+  第一次调用锁定模式（`mode=1/2`）；第二次换模式在**发起连接前**返回本地 `-1007`
+  （`HTTP_LOCAL_ERR_STATE`，`error_detail` 的 `stage=state`），服务端计数不增；
+  `send_stream(r, NULL, ud)` 返回 `-1001`，同样不发请求。**当前没有编译期诊断，也没有
+  静默取其一**：只有运行期本地错误，按调用顺序生效。请求体 `body()` + `send_stream()`
+  允许共存，因为本 phase 的 `\0` 用例要求请求体经流式路径发送。原卡把 R-12 写成
+  「与 body 同时设置」，按字面会与 `\0` 用例冲突；裁定按响应模式解释，本条为补卡。
+- 规范同步（2026-11-15 裁定）：`docs/requirements.md` R-12 的互斥句与 `docs/design.md`
+  H3 的摘要同步为 `send()` / `send_stream()` 互斥；实现、夹具与 golden 不动。
 - 不 push、不打 tag。
 
 ## 3. 交付物清单
@@ -156,7 +166,7 @@ green: <转绿提交 sha 或提交名> 后同命令退出 0
 | 流式 idle 的回调粒度约 1 秒 | `idle_timeout(500)` 约 1 秒才中止 | 判据只断言 `28/3` 与字节数，不断言毫秒 |
 | `/stall2` 子进程在睡 | 下一个请求排队 | 子进程被 `p4_server_stop` SIGTERM 回收；p7-idle 顺序执行，预计 <4 秒 |
 | 上限截断的 `int` 转换 | 上限大于 1 MB 或负数 | 夹具只用 1024；`n<0` 本地 `-1001`；`total_bytes` 仍为 `int` |
-| R-12 的 body/stream 互斥与 `\0` 用例冲突 | 评审按字面要求禁止请求体 + 流式响应 | 本卡按响应模式解释并写进 §2.2；若必须按字面，停下报告 |
+| R-12 的 body/stream 互斥与 `\0` 用例冲突 | 评审按字面要求禁止请求体 + 流式响应 | 2026-11-15 已裁定接受：按响应模式互斥，见 §2.2；规范同步见 requirements R-12 与 design H3 |
 
 ## 9. 收口动作
 

@@ -97,7 +97,7 @@ README 与 phase 卡都把这写成验收项（负例：默认值必须能被测
 | --- | --- | --- |
 | H1 | 骨架；构造与 `Drop`；七个配置方法；`HttpResponse` 读取面 | 无需 libcurl 即可编译运行的配置对象 |
 | H2 | `post()`：shim 绑定、响应缓冲、header slist、`perform` + `getinfo` | 本地 fixture server 上 200/404/500 端到端 |
-| H3 | `post_stream(cb, ud)`：分片回调、提前中止、与 `body` 互斥 | 回调契约测试 + 分片顺序断言 |
+| H3 | `post_stream(cb, ud)`：分片回调、提前中止、与 `send()` / `send_stream()` 响应模式互斥（请求体可共存） | 回调契约测试 + 分片顺序断言 |
 | H4 | `cancel()` / `is_cancelled()`：进度回调置位 → `CURLE_ABORTED_BY_CALLBACK` | 取消路径可复现，且不泄漏 |
 | H5 | 错误映射：`CURLcode` → `error_code` / `error_msg` / `error_detail()` | 表驱动负例全覆盖 |
 | H6 | 全部 libcurl 调用收进 C shim；跨平台与 sanitizer；收口 | macOS/Linux 绿，ASAN/LSAN 干净 |
