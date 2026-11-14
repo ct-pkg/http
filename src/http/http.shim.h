@@ -47,6 +47,7 @@ struct HttpRequest {
     int follow_redirects; /* 0 = do not follow, the default */
     int idle_timeout_ms;  /* 0 = no idle limit; gap since the last data byte */
     int max_body_bytes;   /* 0 = unlimited; reaching it aborts with -1008 */
+    int mode;             /* 0 fresh, 1 send(), 2 send_stream(); mixing is -1007 */
     char *user_agent;     /* owned; defaults to HTTP_DEFAULT_USER_AGENT */
 };
 
@@ -60,6 +61,7 @@ struct HttpRequest {
 #define HTTP_LOCAL_ERR_SCHEME (-1004)
 #define HTTP_LOCAL_ERR_TIMEOUT (-1005)
 #define HTTP_LOCAL_ERR_NO_HANDLE (-1006)
+#define HTTP_LOCAL_ERR_STATE (-1007)
 #define HTTP_LOCAL_ERR_BODY_LIMIT (-1008)
 
 #define HTTP_DEFAULT_USER_AGENT "ct-http/0.1.0"

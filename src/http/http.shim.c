@@ -86,6 +86,7 @@ struct HttpRequest *http_request_new(const char *url)
     r->follow_redirects = 0;
     r->idle_timeout_ms = 0;
     r->max_body_bytes = 0;
+    r->mode = 0;
     r->user_agent = dup_string(HTTP_DEFAULT_USER_AGENT);
     if (!has_http_scheme(r->url)) {
         r->local_error = HTTP_LOCAL_ERR_SCHEME;
@@ -349,6 +350,9 @@ static void host_part(const char *url, char *out, size_t cap)
 
 static const char *error_stage(int code)
 {
+    if (code == HTTP_LOCAL_ERR_STATE) {
+        return "state";
+    }
     if (code == HTTP_LOCAL_ERR_BODY_LIMIT) {
         return "body-limit";
     }
@@ -402,6 +406,19 @@ static char *make_error_detail(const char *url, int code, int kind, int limit)
                  error_stage(code), names[kind], host);
     }
     return dup_string(buf);
+}
+
+/* Fill an already-allocated response with a local rejection. */
+static void fill_local_error(struct HttpResponse *resp, const char *url,
+                             int code, int with_body)
+{
+    resp->error = code;
+    if (with_body) {
+        resp->body = dup_string("");
+    }
+    resp->error_msg = make_error_msg(url != NULL ? url : "", code);
+    resp->error_detail =
+        make_error_detail(url != NULL ? url : "", code, HTTP_TIMEOUT_NONE, 0);
 }
 
 /* Wall clock in microseconds: short-lived transfers, only differences matter. */
@@ -528,13 +545,14 @@ static struct HttpResponse *real_send(struct HttpRequest *r)
     /* Local rejections keep their negative code; no handle is its own case. */
     if (r->local_error != 0 || r->easy == NULL) {
         int local = r->local_error != 0 ? r->local_error : HTTP_LOCAL_ERR_NO_HANDLE;
-        resp->error = local;
-        resp->body = dup_string("");
-        resp->error_msg = make_error_msg(r->url != NULL ? r->url : "", local);
-        resp->error_detail =
-            make_error_detail(r->url != NULL ? r->url : "", local, HTTP_TIMEOUT_NONE, 0);
+        fill_local_error(resp, r->url, local, 1);
         return resp;
     }
+    if (r->mode == 2) {
+        fill_local_error(resp, r->url, HTTP_LOCAL_ERR_STATE, 1);
+        return resp;
+    }
+    r->mode = 1;
 
     struct BodyBuf buf;
     buf.data = NULL;
@@ -683,12 +701,18 @@ static struct HttpResponse *real_send_stream(struct HttpRequest *r,
 
     if (r->local_error != 0 || r->easy == NULL) {
         int local = r->local_error != 0 ? r->local_error : HTTP_LOCAL_ERR_NO_HANDLE;
-        resp->error = local;
-        resp->error_msg = make_error_msg(r->url != NULL ? r->url : "", local);
-        resp->error_detail =
-            make_error_detail(r->url != NULL ? r->url : "", local, HTTP_TIMEOUT_NONE, 0);
+        fill_local_error(resp, r->url, local, 0);
         return resp;
     }
+    if (cb == NULL) {
+        fill_local_error(resp, r->url, HTTP_LOCAL_ERR_ARG, 0);
+        return resp;
+    }
+    if (r->mode == 1) {
+        fill_local_error(resp, r->url, HTTP_LOCAL_ERR_STATE, 0);
+        return resp;
+    }
+    r->mode = 2;
 
     struct StreamSink sink;
     sink.cb = cb;
