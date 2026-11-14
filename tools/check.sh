@@ -195,7 +195,9 @@ g3)
     bash "$pkg/test/run.sh" phase1_chain || fail "phase1_chain"
     bash "$pkg/test/run.sh" phase1_var || fail "phase1_var"
     bash "$pkg/test/run.sh" phase1_no_mapping || fail "phase1_no_mapping"
-    printf 'ok g3 (abi, chain, variable landing, negative import)\n'
+    bash "$pkg/test/run.sh" p2-cleanup-once || fail "p2-cleanup-once"
+    bash "$pkg/test/run.sh" p2-nm || fail "p2-nm"
+    printf 'ok g3 (abi, chain, variable landing, negative import, shim lifecycle)\n'
     ;;
 g2 | g4 | g5 | g6 | g7 | g8 | g9)
     printf '%s: not implemented yet (see docs/phases/PH-1/card.md)\n' "$gate" >&2

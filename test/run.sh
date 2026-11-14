@@ -84,7 +84,8 @@ run_negative() {
 run_abi() {
     log="$tmp/$task.build.log"
     "$CC_BIN" -std=c99 -Wall -Wextra -Werror -I "$repo/src/http" \
-        "$fixtures/phase1_abi.c" -o "$tmp/phase1_abi" >"$log" 2>&1 \
+        "$fixtures/phase1_abi.c" "$repo/src/http/http.shim.c" -lcurl \
+        -o "$tmp/phase1_abi" >"$log" 2>&1 \
         || { cat "$log" >&2; fail "cc failed"; }
     "$tmp/phase1_abi" >"$tmp/phase1_abi.out" 2>&1 \
         || { cat "$tmp/phase1_abi.out" >&2; fail "abi fixture failed"; }

@@ -2,65 +2,50 @@
 #define HTTP_SHIM_H
 
 /*
- * Phase 1 shim: struct layout plus fixed-value stubs. No network and no
- * libcurl yet; phase 2 swaps the bodies for a real easy handle and adds the
- * ops table. The CT mapping unit (http.m.ct) only ever calls http_* here.
+ * Public C surface. The CT mapping unit (http.m.ct) only calls http_* here;
+ * libcurl stays inside http.shim.c, so no curl type or symbol leaks into a
+ * CT-generated object. Phase 2 owns the easy-handle lifetime and explicit
+ * release; phase 3 adds request configuration, phase 4 real execution.
  */
 
 #include <stdlib.h>
 
 struct HttpRequest {
-    char *url;
+    char *url;        /* borrowed until phase 3 takes ownership */
     int headers;
     int timeout_ms;
+    void *easy;       /* CURL *; opaque so this header stays curl-free */
 };
 
 struct HttpResponse {
     int status;
-    char *body;
+    char *body;       /* owned by the response */
 };
 
-/* Factory: the only place a request is constructed. */
-static inline struct HttpRequest *http_request_new(const char *url)
-{
-    struct HttpRequest *r = (struct HttpRequest *)malloc(sizeof(struct HttpRequest));
-    r->url = (char *)url;
-    r->headers = 0;
-    r->timeout_ms = 0;
-    return r;
-}
+/* Construction and configuration. */
+struct HttpRequest *http_request_new(const char *url);
+struct HttpRequest *http_request_header(struct HttpRequest *r,
+                                        const char *name,
+                                        const char *value);
+struct HttpRequest *http_request_timeout(struct HttpRequest *r, int ms);
 
-static inline struct HttpRequest *http_request_header(struct HttpRequest *r,
-                                                      const char *name,
-                                                      const char *value)
-{
-    if (name != 0 && value != 0) {
-        r->headers = r->headers + 1;
-    }
-    return r;
-}
+/* Execution (still a fixed-value stub until phase 4). */
+struct HttpResponse *http_request_send(struct HttpRequest *r);
 
-static inline struct HttpRequest *http_request_timeout(struct HttpRequest *r, int ms)
-{
-    r->timeout_ms = ms;
-    return r;
-}
+/* Read-only response view. */
+int http_response_status(struct HttpResponse *r);
+char *http_response_body(struct HttpResponse *r);
 
-/* Stub: returns a fixed response. Phase 4 replaces this with perform(). */
-static inline struct HttpResponse *http_request_send(struct HttpRequest *r)
-{
-    struct HttpResponse *resp = (struct HttpResponse *)malloc(sizeof(struct HttpResponse));
-    if (r->timeout_ms < 0) {
-        resp->status = 408;
-        resp->body = "stub: timeout";
-    } else {
-        resp->status = 200;
-        resp->body = "{\"users\":3}";
-    }
-    return resp;
-}
+/*
+ * Explicit release. Nothing runs curl_easy_cleanup on scope exit: the caller
+ * owns every request and response and must release it exactly once.
+ *
+ *   http_request_release()  terminal form used by the CT `.free()` method
+ */
+void http_request_release(struct HttpRequest *r);
 
-static inline int http_response_status(struct HttpResponse *r) { return r->status; }
-static inline char *http_response_body(struct HttpResponse *r) { return r->body; }
+/* Test hooks: process-local counters, reset by starting a new process. */
+int http_shim_easy_init_count(void);
+int http_shim_easy_cleanup_count(void);
 
 #endif

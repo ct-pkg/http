@@ -21,6 +21,7 @@ pub trait RequestBuilder {
     CRequest *header(char *name, char *value);
     CRequest *timeout(int ms);
     CResponse *send();
+    void free();
 }
 
 /* Layer 3: the response is a read-only view. */
@@ -37,6 +38,7 @@ map trait RequestBuilder for type CRequest * {
     header(r, name, value) -> http_request_header(r, name, value);
     timeout(r, ms)         -> http_request_timeout(r, ms);
     send(r)                -> http_request_send(r);
+    free(r)                -> http_request_release(r);
 }
 
 map trait ResponseView for type CResponse * {
