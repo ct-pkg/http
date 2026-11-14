@@ -269,6 +269,9 @@ p5-predicates)
 p6-total)
     run_cc_server
     ;;
+p6-connect)
+    run_cc
+    ;;
 phase1_no_mapping)
     run_negative
     ;;
