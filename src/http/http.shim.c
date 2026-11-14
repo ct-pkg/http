@@ -93,6 +93,9 @@ struct HttpRequest *http_request_new(const char *url)
             curl_easy_setopt((CURL *)r->easy, CURLOPT_USERAGENT, r->user_agent);
         }
         g_easy_init_count = g_easy_init_count + 1;
+    } else if (r->local_error == 0) {
+        /* No handle means no transfer: report it now, not as a silent status 0. */
+        r->local_error = HTTP_LOCAL_ERR_NO_HANDLE;
     }
     r->ops = &http_default_ops;
     return r;
@@ -333,10 +336,12 @@ static struct HttpResponse *real_send(struct HttpRequest *r)
     resp->body = NULL;
     resp->body_len = 0;
     resp->total_bytes = 0;
+    resp->error = 0;
     g_last_curl_code = 0;
 
-    /* A locally rejected request never leaves the process. */
+    /* Local rejections keep their negative code; no handle is its own case. */
     if (r->local_error != 0 || r->easy == NULL) {
+        resp->error = r->local_error != 0 ? r->local_error : HTTP_LOCAL_ERR_NO_HANDLE;
         resp->body = dup_string("");
         return resp;
     }
@@ -382,6 +387,7 @@ int http_response_status(struct HttpResponse *r) { return r->status; }
 char *http_response_body(struct HttpResponse *r) { return r->body; }
 int http_response_body_len(struct HttpResponse *r) { return r->body_len; }
 int http_response_total_bytes(struct HttpResponse *r) { return r->total_bytes; }
+int http_response_error(struct HttpResponse *r) { return r->error; }
 
 /*
  * Single ownership: the pointer leaves the response and the response forgets

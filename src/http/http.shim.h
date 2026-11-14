@@ -50,6 +50,7 @@ struct HttpRequest {
 #define HTTP_LOCAL_ERR_BODY (-1003)
 #define HTTP_LOCAL_ERR_SCHEME (-1004)
 #define HTTP_LOCAL_ERR_TIMEOUT (-1005)
+#define HTTP_LOCAL_ERR_NO_HANDLE (-1006)
 
 #define HTTP_DEFAULT_USER_AGENT "ct-http/0.1.0"
 
@@ -58,6 +59,7 @@ struct HttpResponse {
     char *body;       /* owned by the response; not a C string, use body_len */
     int body_len;     /* bytes in body, so an embedded NUL survives */
     int total_bytes;  /* bytes accumulated by the write callback */
+    int error;        /* 0, a positive CURLcode, or a negative local code */
 };
 
 /* Construction and configuration. */
@@ -85,6 +87,10 @@ int http_response_status(struct HttpResponse *r);
 char *http_response_body(struct HttpResponse *r);
 int http_response_body_len(struct HttpResponse *r);
 int http_response_total_bytes(struct HttpResponse *r);
+
+/* 0 = no error, > 0 = raw CURLcode, < 0 = local rejection (HTTP_LOCAL_ERR_*).
+   An HTTP 4xx/5xx is not an error here: status carries that. */
+int http_response_error(struct HttpResponse *r);
 
 /* Move the body out: the response stops owning it (body becomes NULL and
    body_len 0), the caller must free() the returned pointer exactly once. */

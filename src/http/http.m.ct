@@ -35,6 +35,7 @@ pub trait ResponseView {
     char *body();
     int body_len();
     int total_bytes();
+    int error();
     char *take_body();
     void free();
 }
@@ -60,6 +61,7 @@ map trait ResponseView for type CResponse * {
     body(r)        -> http_response_body(r);
     body_len(r)    -> http_response_body_len(r);
     total_bytes(r) -> http_response_total_bytes(r);
+    error(r)       -> http_response_error(r);
     take_body(r)   -> http_response_take_body(r);
     free(r)        -> http_response_release(r);
 }
