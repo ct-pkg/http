@@ -51,6 +51,9 @@ struct HttpRequest *http_request_new(const char *url)
     r->timeout_ms = 0;
     r->headers_slist = NULL;
     r->local_error = 0;
+    r->body = NULL;
+    r->body_len = 0;
+    r->body_stage = 0;
     r->easy = curl_easy_init();
     if (r->easy != NULL) {
         g_easy_init_count = g_easy_init_count + 1;
@@ -123,6 +126,47 @@ struct HttpRequest *http_request_timeout(struct HttpRequest *r, int ms)
     return r;
 }
 
+struct HttpRequest *http_request_body(struct HttpRequest *r,
+                                      const char *data,
+                                      int len)
+{
+    if (r == NULL) {
+        return NULL;
+    }
+    if (data == NULL || len < 0) {
+        if (r->local_error == 0) {
+            r->local_error = HTTP_LOCAL_ERR_BODY;
+        }
+        return r;
+    }
+
+    size_t n = (size_t)len;
+    char *copy = (char *)malloc(n + 1);
+    if (copy == NULL) {
+        if (r->local_error == 0) {
+            r->local_error = HTTP_LOCAL_ERR_BODY;
+        }
+        return r;
+    }
+    if (n > 0) {
+        memcpy(copy, data, n);
+    }
+    copy[n] = '\0';
+
+    free(r->body);
+    r->body = copy;
+    r->body_len = len;
+
+    /* Size first: without it libcurl would stop at the first NUL. */
+    if (r->easy != NULL) {
+        curl_easy_setopt((CURL *)r->easy, CURLOPT_POSTFIELDSIZE, (long)len);
+        r->body_stage = (r->body_stage == 0) ? 1 : 3;
+        curl_easy_setopt((CURL *)r->easy, CURLOPT_COPYPOSTFIELDS, copy);
+        r->body_stage = (r->body_stage == 1) ? 2 : 3;
+    }
+    return r;
+}
+
 /* Stub: returns a fixed response. Phase 4 replaces this with perform(). */
 static struct HttpResponse *stub_send(struct HttpRequest *r)
 {
@@ -177,6 +221,8 @@ static void request_destroy(struct HttpRequest *r)
     r->url = NULL;
     curl_slist_free_all((struct curl_slist *)r->headers_slist);
     r->headers_slist = NULL;
+    free(r->body);
+    r->body = NULL;
     free(r);
 }
 

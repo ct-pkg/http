@@ -30,6 +30,11 @@ struct HttpRequest {
     const struct HttpRequestOps *ops;
     void *headers_slist; /* struct curl_slist *; opaque */
     int local_error;     /* first local validation error, 0 = none */
+    char *body;          /* owned copy of the upload buffer */
+    int body_len;
+    /* 0 untouched, 1 POSTFIELDSIZE applied, 2 COPYPOSTFIELDS applied,
+       3 applied out of order (a bug the fixtures must catch). */
+    int body_stage;
 };
 
 /*
@@ -37,6 +42,7 @@ struct HttpRequest {
  * They are not the public error surface (see S-05); phase 5 decides that.
  */
 #define HTTP_LOCAL_ERR_HEADER (-1002)
+#define HTTP_LOCAL_ERR_BODY (-1003)
 
 struct HttpResponse {
     int status;
@@ -49,6 +55,9 @@ struct HttpRequest *http_request_header(struct HttpRequest *r,
                                         const char *name,
                                         const char *value);
 struct HttpRequest *http_request_timeout(struct HttpRequest *r, int ms);
+struct HttpRequest *http_request_body(struct HttpRequest *r,
+                                      const char *data,
+                                      int len);
 
 /* Execution (still a fixed-value stub until phase 4). */
 struct HttpResponse *http_request_send(struct HttpRequest *r);
