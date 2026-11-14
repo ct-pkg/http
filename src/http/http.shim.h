@@ -86,6 +86,10 @@ char *http_response_body(struct HttpResponse *r);
 int http_response_body_len(struct HttpResponse *r);
 int http_response_total_bytes(struct HttpResponse *r);
 
+/* Move the body out: the response stops owning it (body becomes NULL and
+   body_len 0), the caller must free() the returned pointer exactly once. */
+char *http_response_take_body(struct HttpResponse *r);
+
 /*
  * Explicit release. Nothing runs curl_easy_cleanup on scope exit: the caller
  * owns every request and response and must release it exactly once.

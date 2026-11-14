@@ -382,6 +382,21 @@ int http_response_body_len(struct HttpResponse *r) { return r->body_len; }
 int http_response_total_bytes(struct HttpResponse *r) { return r->total_bytes; }
 
 /*
+ * Single ownership: the pointer leaves the response and the response forgets
+ * it, so its release frees only the struct. A second take sees NULL.
+ */
+char *http_response_take_body(struct HttpResponse *r)
+{
+    if (r == NULL || r->body == NULL) {
+        return NULL;
+    }
+    char *body = r->body;
+    r->body = NULL;
+    r->body_len = 0;
+    return body;
+}
+
+/*
  * The one place a request is destroyed. The easy handle is cleaned up here
  * and nowhere else, so the counter proves ownership: send() never cleans up.
  */
