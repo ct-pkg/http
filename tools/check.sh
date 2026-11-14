@@ -4,6 +4,9 @@
 #
 #   bash tools/check.sh g0    spec block, instantiation table, session map,
 #                             version landing (AGENTS 6.4 / 11.5)
+#   bash tools/check.sh g1    phase card: ten items, seven task columns,
+#                             frozen exit-criteria / task-list digests
+#   bash tools/check.sh g3    build + run the phase 1 fixtures, zero warnings
 #
 # Any subcommand that is not implemented exits 2 with an explicit message:
 # a gate that cannot run must not look green.
@@ -15,10 +18,122 @@ set -u
 here="$(cd "$(dirname "$0")" && pwd)"
 pkg="$(cd "$here/.." && pwd)"
 SPEC_BIN="${SPEC_BIN:-/Users/samxx/trae-ws/.ai-engineering/bin/sync-agents.sh}"
+CT_BIN="${CT_BIN:-/Users/samxx/.local/bin/ct}"
 
 fail() {
     printf 'FAIL %s: %s\n' "$gate" "$1" >&2
     exit 1
+}
+
+# section <heading> <file>
+# Print the body of a level-2 section, excluding the heading and the trailing
+# blank lines. Level-3 headings stay inside the section.
+section() {
+    awk -v h="$1" '
+        index($0, h) == 1 { inb = 1; next }
+        inb && /^## / { exit }
+        inb { print }
+    ' "$2"
+}
+
+# digest_section <heading> <file>
+# sha256 over the same body section() prints, with trailing blank lines
+# stripped. This is what the card records and what g1 recomputes.
+digest_section() {
+    awk -v h="$1" '
+        index($0, h) == 1 { inb = 1; next }
+        inb && /^## / { exit }
+        inb { buf[n++] = $0 }
+        END {
+            while (n > 0 && buf[n - 1] ~ /^[[:space:]]*$/) n--
+            for (i = 0; i < n; i++) print buf[i]
+        }
+    ' "$2" | shasum -a 256 | awk '{print $1}'
+}
+
+# check_card <path>
+# The ten required items (AGENTS 6.2 plus the project's red-evidence and
+# closeout rows), the seven task columns, and the frozen digests.
+check_card() {
+    card="$1"
+    [ -f "$card" ] || fail "missing card: $card"
+
+    for h in \
+        '## 0. 编号与元信息' \
+        '## 1. 目标' \
+        '## 2. 范围' \
+        '## 3. 交付物清单' \
+        '## 4. 任务清单' \
+        '## 5. 退出判据（冻结）' \
+        '## 6. 红证方式' \
+        '## 7. 依赖' \
+        '## 8. 已知风险' \
+        '## 9. 收口动作'; do
+        grep -qxF "$h" "$card" || fail "$card: missing card item: $h"
+    done
+
+    ph="$(sed -n 's/^- 编号：\(PH-[0-9][0-9]*\)$/\1/p' "$card" | head -n 1)"
+    [ -n "$ph" ] || fail "$card: missing or malformed '- 编号：PH-<n>'"
+    n="${ph#PH-}"
+    grep -qxF -- "- version-minor：$n" "$card" \
+        || fail "$card: version-minor must equal $n (PH-<n>)"
+    grep -qE '^- 规范版本：[0-9]+\.[0-9]+\.[0-9]+' "$card" \
+        || fail "$card: missing '- 规范版本：<x.y.z>'"
+    grep -qE '^- criteria-sha256：[0-9a-f]{64}$' "$card" \
+        || fail "$card: missing '- criteria-sha256：<64 hex>'"
+    grep -qE '^- tasks-sha256：[0-9a-f]{64}$' "$card" \
+        || fail "$card: missing '- tasks-sha256：<64 hex>'"
+
+    crit="$(section '## 5. 退出判据（冻结）' "$card")"
+    printf '%s\n' "$crit" | grep -qF '任务清单每项可独立验收（6.6 T-6）' \
+        || fail "$card: exit criteria must include '任务清单每项可独立验收（6.6 T-6）'"
+    printf '%s\n' "$crit" | awk -F'|' '
+        /^\| E-P1-[0-9]+ / {
+            n++
+            if ($0 !~ /`/) { print "criterion without a command anchor: " $0 > "/dev/stderr"; bad = 1 }
+        }
+        END {
+            if (n < 3) { print "need at least 3 E-P1 exit criteria, got " n > "/dev/stderr"; bad = 1 }
+            if (bad) exit 1
+        }
+    ' || fail "$card: exit criteria rows invalid"
+
+    tasks="$(section '## 4. 任务清单' "$card")"
+    printf '%s\n' "$tasks" | awk -F'|' '
+        /^\| T[0-9]+ / {
+            n++
+            cnt = 0
+            for (i = 2; i < NF; i++) if ($i ~ /[^ \t]/) cnt++
+            if (cnt != 7) {
+                printf "task row has %d non-empty columns, need 7: %s\n", cnt, $2 > "/dev/stderr"
+                bad = 1
+            }
+            effort = $7; gsub(/^[ \t]+|[ \t]+$/, "", effort)
+            if (effort != "S" && effort != "M") {
+                printf "task %s effort must be S or M, got %s\n", $2, effort > "/dev/stderr"
+                bad = 1
+            }
+            cover = $8; gsub(/^[ \t]+|[ \t]+$/, "", cover)
+            if (cover !~ /E-P1-[0-9]+/) {
+                printf "task %s must name the exit criterion it covers\n", $2 > "/dev/stderr"
+                bad = 1
+            }
+        }
+        END {
+            if (n < 1) { print "task table has no rows" > "/dev/stderr"; bad = 1 }
+            if (bad) exit 1
+        }
+    ' || fail "$card: task table invalid"
+
+    want_c="$(sed -n 's/^- criteria-sha256：\([0-9a-f]\{64\}\)$/\1/p' "$card" | head -n 1)"
+    got_c="$(digest_section '## 5. 退出判据（冻结）' "$card")"
+    [ "$want_c" = "$got_c" ] \
+        || fail "$card: criteria-sha256 mismatch (card=$want_c actual=$got_c); exit criteria are frozen"
+
+    want_t="$(sed -n 's/^- tasks-sha256：\([0-9a-f]\{64\}\)$/\1/p' "$card" | head -n 1)"
+    got_t="$(digest_section '## 4. 任务清单' "$card")"
+    [ "$want_t" = "$got_t" ] \
+        || fail "$card: tasks-sha256 mismatch (card=$want_t actual=$got_t); task list is frozen"
 }
 
 gate="${1:-}"
@@ -54,12 +169,26 @@ g0)
 
     printf 'ok g0 (spec block, 8 rows, routing, deviations, session map, version %s)\n' "$pkg_ver"
     ;;
-g3 | g1 | g2 | g4 | g5 | g6 | g7 | g8 | g9)
-    printf '%s: not implemented yet (see docs/phases/H1.md H1-T6)\n' "$gate" >&2
+g1)
+    if [ -n "${CARD_FILE:-}" ]; then
+        check_card "$CARD_FILE"
+    else
+        found=0
+        for card in "$pkg"/docs/phases/PH-*/card.md; do
+            [ -f "$card" ] || continue
+            found=1
+            check_card "$card"
+        done
+        [ "$found" -eq 1 ] || fail "no docs/phases/PH-*/card.md"
+    fi
+    printf 'ok g1 (card items, task columns, frozen criteria/tasks digests)\n'
+    ;;
+g2 | g3 | g4 | g5 | g6 | g7 | g8 | g9)
+    printf '%s: not implemented yet (see docs/phases/PH-1/card.md)\n' "$gate" >&2
     exit 2
     ;;
 *)
-    printf 'usage: bash tools/check.sh <g0|g1|...|g9>\n' >&2
+    printf 'usage: bash tools/check.sh <g0|g1|g3|...|g9>\n' >&2
     exit 2
     ;;
 esac
