@@ -1,0 +1,10 @@
+namespace http;
+
+/*
+ * Constants live in their own base: the compiler rejects a same-base .h.ct
+ * next to http.m.ct as an ambiguous import. Consumers import both units.
+ */
+
+pub enum HttpDefaults {
+    HttpTimeoutDefaultMs = 0
+}

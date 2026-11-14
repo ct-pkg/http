@@ -36,7 +36,7 @@ run_ct() {
     (
         cd "$tmp" || exit 1
         "$CT_BIN" build "$fixtures/$task.ct" -I "$repo/src" -o "$task" \
-            --outdir "$tmp/$task" --cflags "-Wall -Wextra -Werror"
+            --outdir "$tmp/build-$task" --cflags "-Wall -Wextra -Werror"
     ) >"$log" 2>&1 || { cat "$log" >&2; fail "ct build failed"; }
     grep -q 'warning:' "$log" && { cat "$log" >&2; fail "build emitted warning:"; }
     "$tmp/$task" >"$tmp/$task.out" 2>&1 \

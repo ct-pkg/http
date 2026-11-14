@@ -1,0 +1,45 @@
+namespace http;
+
+#include "http.shim.h"
+
+/*
+ * The public surface is this mapping unit, not the .h.ct types. Consumers
+ * must `import http::http;`; importing only a type/constant unit leaves the
+ * methods undiscoverable (`no method 'post' for type 'char *'`).
+ */
+
+pub type CRequest = struct HttpRequest;
+pub type CResponse = struct HttpResponse;
+
+/* Layer 1: a string only acts as a factory. */
+pub trait HttpEntry {
+    CRequest *post();
+}
+
+/* Layer 2: request configuration returns the receiver, so the chain keeps going. */
+pub trait RequestBuilder {
+    CRequest *header(char *name, char *value);
+    CRequest *timeout(int ms);
+    CResponse *send();
+}
+
+/* Layer 3: the response is a read-only view. */
+pub trait ResponseView {
+    int status();
+    char *body();
+}
+
+map trait HttpEntry for type char * {
+    post(s) -> http_request_new(s);
+}
+
+map trait RequestBuilder for type CRequest * {
+    header(r, name, value) -> http_request_header(r, name, value);
+    timeout(r, ms)         -> http_request_timeout(r, ms);
+    send(r)                -> http_request_send(r);
+}
+
+map trait ResponseView for type CResponse * {
+    status(r) -> http_response_status(r);
+    body(r)   -> http_response_body(r);
+}
