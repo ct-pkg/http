@@ -3,16 +3,17 @@
 `libcurl` easy handle 的 HTTP 客户端包。对外是链式接口：字符串起手，请求对象承载配置，
 响应对象只读。
 
-- 版本：0.1.0（phase 1：公开面冻结，`send()` 仍是固定值 stub）
+- 版本：0.1.0（phase 2：真 easy handle 与显式释放；`send()` 仍是固定值 stub）
 - 许可：MIT（`.ct` / shim / 测试）+ curl 原许可（链接的系统 libcurl）
 - 平台：macOS 与 Linux 的系统 libcurl
 - 规划：[0.1.0 roadmap](docs/planning/ct-http-0.1.0-roadmap.md)、
   [feature 划分](docs/planning/ct-http-0.1.0-features.md)
-- 当前 phase 卡：[PH-1](docs/phases/PH-1/card.md)
+- 当前 phase 卡：[PH-2](docs/phases/PH-2/card.md)
 - 设计稿：[docs/design.md](docs/design.md)
 
-> **phase 1 的 `send()` 不发网络**：shim 返回固定的 `200` 与一段 JSON。
-> 真实请求在 phase 4 接入；在那之前，样例能编译、能运行，但结果是 stub 值。
+> **`send()` 还不发网络**：shim 返回固定的 `200` 与一段 JSON。
+> 真实请求在 phase 4 接入；phase 2 已让 `curl_easy_init` / `curl_easy_cleanup`
+> 真实发生，并由显式释放触发。
 
 ## 用法
 
@@ -45,6 +46,29 @@ req->header("Accept", "application/json");
 req->timeout(3000);
 CResponse *res = req->send();
 int status = res->status();
+res->free();
+req->free();
+```
+
+## 构建
+
+```sh
+ct build main.ct -I src -o app --outdir build \
+    --cflags "-Wall -Wextra -Werror" --ldflags "-lcurl"
+```
+
+`http.shim.c` 由 `ct build` 自动列入 cc 行；`ct build` 不读取 `ct.pkg` 的
+`ldflags`，所以链接参数必须显式传 `--ldflags "-lcurl"`。
+
+释放示例（每个对象只调一次；`.free()` 调用后不再使用该变量）：
+
+```text
+import http::http;
+
+CRequest *r = "https://api.example.com/users"->post();
+CResponse *res = r->send();
+res->free();
+r->free();
 ```
 
 ## 接口约定（0.1.0 冻结）
@@ -59,8 +83,12 @@ int status = res->status();
 5. **链每跳展开成嵌套裸 C 调用**。没有 vtable、没有装箱、没有临时对象；生成 C 可直接核对。
 6. **libcurl 只在 shim**。`.m.ct` 只调 `http_*`；`curl_*` 不进入 CT 单元（phase 2 起由
    `http.shim.c` 承担）。
-7. **释放是显式的**。`send()` 不释放请求；`http_request_free()` / `http_response_free()`
-   是唯一释放入口（phase 2 落地）。`delete` 不作为公开释放方式。
+7. **释放是显式的**。`send()` 不释放请求，也不会自动调用 `curl_easy_cleanup`：
+   - CT 侧用 `req->free();` / `res->free();`，各调一次；`.free()` 是终态，调用后
+     原变量不再使用。
+   - C 侧用槽位形式 `http_request_free(&req);` / `http_response_free(&res);`，
+     置空后二次调用是 no-op。
+   - `delete` 不作为公开释放方式。
 8. **回调只收命名函数**。`HttpChunkCb` 带 `void *ud`，闭包不能填该签名（phase 7 落地）。
 
 ## 定位与边界
@@ -89,7 +117,7 @@ ct install
 ```sh
 bash tools/check.sh g0     # 规约纳管：spec 块 + 实例化表 + session-map + 版本落点
 bash tools/check.sh g1     # 卡片十项 + 任务七列 + 判据/任务摘要冻结
-bash tools/check.sh g3     # 夹具构建 + 运行 + 负例
+bash tools/check.sh g3     # 夹具构建 + 运行 + 负例 + shim 生命周期/释放
 bash test/gates/g1_negative.sh   # 证明 g1 会拒绝篡改卡
 ```
 
