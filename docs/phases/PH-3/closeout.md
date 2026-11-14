@@ -32,7 +32,7 @@
 | T4 | `c79003a` | `a1eb8f2` | [red/T4.md](red/T4.md) |
 | T5 | `1958eb0` | `d122bab` | [red/T5.md](red/T5.md) |
 | T6 | `ccd2aac` | `fd4cf7e` | [red/T6.md](red/T6.md) |
-| T7 | `679719e` | `docs: PH3-T7 配置面与收口`（本提交） | [red/T7.md](red/T7.md) |
+| T7 | `679719e` | `9826ff5` | [red/T7.md](red/T7.md) |
 
 ## 3. 交付物
 
