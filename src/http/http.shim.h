@@ -54,6 +54,12 @@ struct HttpRequest {
 
 #define HTTP_DEFAULT_USER_AGENT "ct-http/0.1.0"
 
+/* Timeout kinds: one CURLcode (28) still reaches error(), this says which one. */
+#define HTTP_TIMEOUT_NONE 0
+#define HTTP_TIMEOUT_CONNECT 1
+#define HTTP_TIMEOUT_TOTAL 2
+#define HTTP_TIMEOUT_IDLE 3
+
 struct HttpResponse {
     int status;
     char *body;       /* owned by the response; not a C string, use body_len */
@@ -63,6 +69,7 @@ struct HttpResponse {
     char *error_msg;  /* owned; "<stage>: <host> (code N)", NULL when clean */
     char *error_detail; /* owned; "code=N stage=S host=H", reproducible */
     int cancelled;    /* set only by a real abort once phase 8 adds cancel() */
+    int timeout_kind; /* HTTP_TIMEOUT_*; 0 unless error is a timeout */
 };
 
 /* Construction and configuration. */
@@ -104,6 +111,9 @@ int http_response_is_ok(struct HttpResponse *r);
 
 /* Cancellation is a separate axis: is_ok() rules it out by construction. */
 int http_response_is_cancelled(struct HttpResponse *r);
+
+/* Which configured limit fired when error() is 28; HTTP_TIMEOUT_NONE otherwise. */
+int http_response_timeout_kind(struct HttpResponse *r);
 
 /* Move the body out: the response stops owning it (body becomes NULL and
    body_len 0), the caller must free() the returned pointer exactly once. */

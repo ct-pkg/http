@@ -40,6 +40,7 @@ pub trait ResponseView {
     char *error_detail();
     int is_ok();
     int is_cancelled();
+    int timeout_kind();
     char *take_body();
     void free();
 }
@@ -70,6 +71,7 @@ map trait ResponseView for type CResponse * {
     error_detail(r) -> http_response_error_detail(r);
     is_ok(r)       -> http_response_is_ok(r);
     is_cancelled(r) -> http_response_is_cancelled(r);
+    timeout_kind(r) -> http_response_timeout_kind(r);
     take_body(r)   -> http_response_take_body(r);
     free(r)        -> http_response_release(r);
 }

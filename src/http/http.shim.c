@@ -343,13 +343,19 @@ static char *make_error_msg(const char *url, int code)
 }
 
 /* Same inputs give the same string; nothing here is time or address based. */
-static char *make_error_detail(const char *url, int code)
+static char *make_error_detail(const char *url, int code, int kind)
 {
     char host[128];
-    char buf[320];
+    char buf[384];
     host_part(url, host, sizeof host);
-    snprintf(buf, sizeof buf, "code=%d stage=%s host=%s", code,
-             error_stage(code), host);
+    if (kind == HTTP_TIMEOUT_NONE) {
+        snprintf(buf, sizeof buf, "code=%d stage=%s host=%s", code,
+                 error_stage(code), host);
+    } else {
+        static const char *names[] = { "none", "connect", "total", "idle" };
+        snprintf(buf, sizeof buf, "code=%d stage=%s phase=%s host=%s", code,
+                 error_stage(code), names[kind], host);
+    }
     return dup_string(buf);
 }
 
@@ -404,6 +410,7 @@ static struct HttpResponse *real_send(struct HttpRequest *r)
     resp->error_msg = NULL;
     resp->error_detail = NULL;
     resp->cancelled = 0;
+    resp->timeout_kind = HTTP_TIMEOUT_NONE;
     g_last_curl_code = 0;
 
     /* Local rejections keep their negative code; no handle is its own case. */
@@ -412,7 +419,8 @@ static struct HttpResponse *real_send(struct HttpRequest *r)
         resp->error = local;
         resp->body = dup_string("");
         resp->error_msg = make_error_msg(r->url != NULL ? r->url : "", local);
-        resp->error_detail = make_error_detail(r->url != NULL ? r->url : "", local);
+        resp->error_detail =
+            make_error_detail(r->url != NULL ? r->url : "", local, HTTP_TIMEOUT_NONE);
         return resp;
     }
 
@@ -440,6 +448,10 @@ static struct HttpResponse *real_send(struct HttpRequest *r)
     }
     resp->status = (int)code;
     resp->error = transport;
+    /* A bare 28 says "timed out", never which limit. Phase 6 names it. */
+    if (transport == (int)CURLE_OPERATION_TIMEDOUT) {
+        resp->timeout_kind = HTTP_TIMEOUT_TOTAL;
+    }
     resp->body = buf.data != NULL ? buf.data : dup_string("");
     resp->body_len = (int)buf.len;
     /* Written down here: total_bytes is the write-callback total, not a
@@ -447,7 +459,7 @@ static struct HttpResponse *real_send(struct HttpRequest *r)
     resp->total_bytes = (int)buf.len;
     if (transport != 0) {
         resp->error_msg = make_error_msg(r->url, transport);
-        resp->error_detail = make_error_detail(r->url, transport);
+        resp->error_detail = make_error_detail(r->url, transport, resp->timeout_kind);
     }
     return resp;
 }
@@ -492,6 +504,7 @@ int http_response_is_ok(struct HttpResponse *r)
 }
 
 int http_response_is_cancelled(struct HttpResponse *r) { return r->cancelled != 0; }
+int http_response_timeout_kind(struct HttpResponse *r) { return r->timeout_kind; }
 
 /*
  * Single ownership: the pointer leaves the response and the response forgets
