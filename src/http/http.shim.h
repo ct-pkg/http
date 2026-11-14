@@ -40,8 +40,10 @@ char *http_response_body(struct HttpResponse *r);
  * Explicit release. Nothing runs curl_easy_cleanup on scope exit: the caller
  * owns every request and response and must release it exactly once.
  *
+ *   http_request_free(&r)   slot form: nulls the caller's pointer, idempotent
  *   http_request_release()  terminal form used by the CT `.free()` method
  */
+void http_request_free(struct HttpRequest **slot);
 void http_request_release(struct HttpRequest *r);
 
 /* Test hooks: process-local counters, reset by starting a new process. */

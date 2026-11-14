@@ -99,9 +99,19 @@ static void request_destroy(struct HttpRequest *r)
     free(r);
 }
 
+void http_request_free(struct HttpRequest **slot)
+{
+    if (slot == NULL || *slot == NULL) {
+        return;
+    }
+    struct HttpRequest *r = *slot;
+    *slot = NULL;            /* null first: a second call is a no-op */
+    request_destroy(r);
+}
+
 void http_request_release(struct HttpRequest *r)
 {
-    request_destroy(r);
+    http_request_free(&r);
 }
 
 int http_shim_easy_init_count(void) { return g_easy_init_count; }
