@@ -141,6 +141,12 @@ p2-double-free)
     task=p2-double-free-bad
     run_asan_negative
     ;;
+p2-after-send)
+    run_ct
+    ;;
+p2-response-free)
+    run_cc
+    ;;
 phase1_no_mapping)
     run_negative
     ;;

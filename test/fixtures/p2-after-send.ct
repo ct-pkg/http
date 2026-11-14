@@ -1,0 +1,20 @@
+import http::http;
+
+#include <stdio.h>
+
+int main(void)
+{
+    CRequest *req = "http://127.0.0.1:1/p2-after-send"->post();
+    CResponse *res = req->send();
+
+    /* send() must not have released the request or the easy handle. */
+    printf("%d %d\n", http_shim_easy_cleanup_count(), res->status());
+
+    res->free();
+    req->free();
+
+    printf("%d %d\n",
+           http_shim_easy_cleanup_count(),
+           http_shim_response_free_count());
+    return 0;
+}
