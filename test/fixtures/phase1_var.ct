@@ -2,14 +2,21 @@ import http::http;
 import http::Types;
 
 #include <stdio.h>
+#include "p4-server.h"
 
+/* Variable landing: the URL is a value, not a literal, now that send() really
+   performs. Output is unchanged from phase 1. */
 int main(void)
 {
-    CRequest *req = "https://api.example.com/users"->post();
+    if (p4_server_start() != 0) return 1;
+    char *url = p4_server_url("/200");
+
+    CRequest *req = url->post();
     req->header("Accept", "application/json");
     req->timeout(3000);
 
     CResponse *res = req->send();
     printf("%d %s %d\n", res->status(), res->body(), HttpTimeoutDefaultMs);
+    p4_server_stop();
     return 0;
 }

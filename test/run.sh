@@ -47,6 +47,38 @@ run_ct() {
     printf 'ok %s\n' "$task"
 }
 
+# Fixtures that really perform need the loopback server linked in. The server
+# is a plain C file, so --ldflags can carry it next to -lcurl.
+run_ct_server() {
+    log="$tmp/$task.build.log"
+    (
+        cd "$tmp" || exit 1
+        "$CT_BIN" build "$fixtures/$task.ct" -I "$repo/src" -o "$task" \
+            --outdir "$tmp/build-$task" \
+            --cflags "-I $fixtures -Wall -Wextra -Werror" \
+            --ldflags "$fixtures/p4-server.c -lcurl"
+    ) >"$log" 2>&1 || { cat "$log" >&2; fail "ct build failed"; }
+    grep -q 'warning:' "$log" && { cat "$log" >&2; fail "build emitted warning:"; }
+    "$tmp/$task" >"$tmp/$task.out" 2>&1 \
+        || { cat "$tmp/$task.out" >&2; fail "fixture failed"; }
+    diff -u "$fixtures/$task.expected.out" "$tmp/$task.out" \
+        || fail "output mismatch"
+    printf 'ok %s\n' "$task"
+}
+
+run_cc_server() {
+    log="$tmp/$task.build.log"
+    "$CC_BIN" -std=c99 -Wall -Wextra -Werror -I "$repo/src/http" -I "$fixtures" \
+        "$fixtures/$task.c" "$fixtures/p4-server.c" "$repo/src/http/http.shim.c" \
+        -lcurl -o "$tmp/$task" >"$log" 2>&1 \
+        || { cat "$log" >&2; fail "cc failed"; }
+    "$tmp/$task" >"$tmp/$task.out" 2>&1 \
+        || { cat "$tmp/$task.out" >&2; fail "fixture failed"; }
+    diff -u "$fixtures/$task.expected.out" "$tmp/$task.out" \
+        || fail "output mismatch"
+    printf 'ok %s\n' "$task"
+}
+
 # The CT object must not reference curl: only http.shim.c may.
 run_nm() {
     emit="$tmp/emit-$task"
@@ -128,7 +160,7 @@ phase1_abi)
     run_abi
     ;;
 phase1_chain | phase1_var)
-    run_ct
+    run_ct_server
     ;;
 p2-cleanup-once)
     run_ct
@@ -142,7 +174,7 @@ p2-double-free)
     run_asan_negative
     ;;
 p2-after-send)
-    run_ct
+    run_ct_server
     ;;
 p2-response-free)
     run_cc
@@ -166,7 +198,10 @@ p3-defaults)
     run_cc
     ;;
 p3-chain)
-    run_ct
+    run_ct_server
+    ;;
+p4-status)
+    run_cc_server
     ;;
 phase1_no_mapping)
     run_negative
