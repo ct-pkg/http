@@ -1,0 +1,26 @@
+import http::http;
+
+#include <stdio.h>
+
+/*
+ * The configuration surface must be reachable from CT, not only from C: every
+ * setter returns the request so the variable landing form keeps working.
+ */
+int main(void)
+{
+    CRequest *req = "https://example.test/chain"->post();
+    req->header("Accept", "application/json");
+    req->timeout(3000);
+    req->connect_timeout(1000);
+    req->body("a", 1);
+    req->user_agent("ct-http-test/1");
+    req->insecure(1);
+    req->follow_redirects(1);
+
+    CResponse *res = req->send();
+    printf("%d %s\n", res->status(), res->body());
+
+    res->free();
+    req->free();
+    return 0;
+}

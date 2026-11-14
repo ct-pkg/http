@@ -165,6 +165,9 @@ p3-scheme)
 p3-defaults)
     run_cc
     ;;
+p3-chain)
+    run_ct
+    ;;
 phase1_no_mapping)
     run_negative
     ;;
