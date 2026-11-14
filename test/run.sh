@@ -296,6 +296,9 @@ p7-limit)
 p7-idle)
     run_cc_server
     ;;
+p7-mutex)
+    run_cc_server
+    ;;
 phase1_no_mapping)
     run_negative
     ;;
