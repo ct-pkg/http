@@ -5,21 +5,25 @@
 | 常驻 | 需求池 | REQ | `issues/`、phase 立项 |
 | 常驻 | 技术池 | ARCH | `docs/design.md`、battle 记录 |
 | 常驻 | 评审 | REVIEW | 复核结论、`verified` 证据 |
-| phase | `[ct-http] H<n> · <目标一句话>` | DEV / VERIFY | `docs/phases/H<n>.md` 的收口对照表 |
+| phase | `[ct-http] PH-<n> · <目标一句话>` | DEV / VERIFY | `docs/phases/PH-<n>/card.md` 与收口文档 |
 
 ## phase → 会话
 
 | phase | 目标 | 会话标题 | 状态 |
 | --- | --- | --- | --- |
-| H1 | 骨架、构造与 Drop、七个配置方法 | `[ct-http] H1 · 骨架与配置` | 规划中（卡见 [phases/H1.md](phases/H1.md)） |
-| H2 | `post()` 同步请求 | `[ct-http] H2 · post()` | 规划中 |
-| H3 | `post_stream(cb, ud)` | `[ct-http] H3 · 流式回调` | 规划中 |
-| H4 | `cancel()` / `is_cancelled()` | `[ct-http] H4 · 取消` | 规划中 |
-| H5 | 错误映射 | `[ct-http] H5 · 错误映射` | 规划中 |
-| H6 | C shim 对接 libcurl 与收口 | `[ct-http] H6 · shim 收口` | 规划中 |
+| PH-1 | 接口冻结与可编译链 | `[ct-http] PH-1 · 接口冻结` | 进行中（卡见 [PH-1/card.md](phases/PH-1/card.md)） |
+| PH-2 | C shim 内核与显式释放 | `[ct-http] PH-2 · shim 与释放` | 规划中 |
+| PH-3 | 请求配置与输入校验 | `[ct-http] PH-3 · 配置与校验` | 规划中 |
+| PH-4 | 同步执行与响应读取面 | `[ct-http] PH-4 · 同步执行` | 规划中 |
+| PH-5 | 错误模型与谓词真值表 | `[ct-http] PH-5 · 错误模型` | 规划中 |
+| PH-6 | 三种超时区分 | `[ct-http] PH-6 · 超时` | 规划中 |
+| PH-7 | 流式执行与慢流保护 | `[ct-http] PH-7 · 流式` | 规划中 |
+| PH-8 | 取消与生命周期 | `[ct-http] PH-8 · 取消` | 规划中 |
+| PH-9 | 重定向与安全策略 | `[ct-http] PH-9 · 重定向` | 规划中 |
+| PH-10 | 跨平台、sanitizer、门禁与发布收口 | `[ct-http] PH-10 · 收口` | 规划中 |
 
 ## 约定
 
 - 一个 phase 一个会话，不复用旧会话；标题按上表。
-- 任务级清单写在 phase 卡里（`docs/phases/H<n>.md`），不在本文件重复。
-- 卡片冻结后任务清单不得中途修改（T-6）。
+- 任务级清单写在 phase 卡里（`docs/phases/PH-<n>/card.md`），不在本文件重复。
+- 卡片冻结后任务清单与退出判据不得中途修改（T-6）；偏差写进收口文档。
