@@ -1,6 +1,7 @@
 #include "http.shim.h"
 
 #include <curl/curl.h>
+#include <stdio.h>
 #include <string.h>
 
 /* Process-local state: each fixture runs in its own process. */
@@ -9,6 +10,7 @@ static int g_easy_cleanup_count = 0;
 static int g_response_free_count = 0;
 static int g_curl_global_ready = 0;
 static int g_last_curl_code = 0;
+static int g_injected_curl_code = 0;
 
 static struct HttpResponse *real_send(struct HttpRequest *r);
 static const struct HttpRequestOps http_default_ops = { real_send };
@@ -289,6 +291,68 @@ struct HttpRequest *http_request_body(struct HttpRequest *r,
     return r;
 }
 
+/* scheme://authority, no path or query: the message must not leak call data. */
+static void host_part(const char *url, char *out, size_t cap)
+{
+    if (cap == 0) {
+        return;
+    }
+    const char *p = strstr(url, "://");
+    p = p != NULL ? p + 3 : url;
+    size_t i = 0;
+    while (p[i] != '\0' && p[i] != '/' && p[i] != '?' && p[i] != '#'
+           && i + 1 < cap) {
+        out[i] = p[i];
+        i++;
+    }
+    out[i] = '\0';
+}
+
+static const char *error_stage(int code)
+{
+    if (code < 0) {
+        return "local";
+    }
+    switch (code) {
+    case 6:
+        return "resolve";
+    case 7:
+        return "connect";
+    case 28:
+        return "timeout";
+    case 35:
+    case 60:
+        return "tls";
+    case 23:
+    case 55:
+        return "write";
+    case 42:
+        return "cancelled";
+    default:
+        return "transfer";
+    }
+}
+
+static char *make_error_msg(const char *url, int code)
+{
+    char host[128];
+    char buf[256];
+    host_part(url, host, sizeof host);
+    snprintf(buf, sizeof buf, "%s: %s (code %d)", error_stage(code), host, code);
+    return dup_string(buf);
+}
+
+/* Same inputs give the same string; nothing here is time or address based. */
+static char *make_error_detail(const char *url, int code)
+{
+    char host[128];
+    char buf[320];
+    host_part(url, host, sizeof host);
+    snprintf(buf, sizeof buf, "code=%d stage=%s host=%s", code,
+             error_stage(code), host);
+    return dup_string(buf);
+}
+
 /* Growable response buffer filled by the write callback. */
 struct BodyBuf {
     char *data;
@@ -337,12 +401,17 @@ static struct HttpResponse *real_send(struct HttpRequest *r)
     resp->body_len = 0;
     resp->total_bytes = 0;
     resp->error = 0;
+    resp->error_msg = NULL;
+    resp->error_detail = NULL;
     g_last_curl_code = 0;
 
     /* Local rejections keep their negative code; no handle is its own case. */
     if (r->local_error != 0 || r->easy == NULL) {
-        resp->error = r->local_error != 0 ? r->local_error : HTTP_LOCAL_ERR_NO_HANDLE;
+        int local = r->local_error != 0 ? r->local_error : HTTP_LOCAL_ERR_NO_HANDLE;
+        resp->error = local;
         resp->body = dup_string("");
+        resp->error_msg = make_error_msg(r->url != NULL ? r->url : "", local);
+        resp->error_detail = make_error_detail(r->url != NULL ? r->url : "", local);
         return resp;
     }
 
@@ -355,16 +424,30 @@ static struct HttpResponse *real_send(struct HttpRequest *r)
     curl_easy_setopt(easy, CURLOPT_URL, r->url);
     curl_easy_setopt(easy, CURLOPT_WRITEFUNCTION, write_cb);
     curl_easy_setopt(easy, CURLOPT_WRITEDATA, &buf);
-    g_last_curl_code = (int)curl_easy_perform(easy);
+
+    int transport;
+    if (g_injected_curl_code != 0) {
+        transport = g_injected_curl_code; /* test seam: no transfer at all */
+    } else {
+        transport = (int)curl_easy_perform(easy);
+    }
+    g_last_curl_code = transport;
 
     long code = 0;
-    curl_easy_getinfo(easy, CURLINFO_RESPONSE_CODE, &code);
+    if (g_injected_curl_code == 0) {
+        curl_easy_getinfo(easy, CURLINFO_RESPONSE_CODE, &code);
+    }
     resp->status = (int)code;
+    resp->error = transport;
     resp->body = buf.data != NULL ? buf.data : dup_string("");
     resp->body_len = (int)buf.len;
     /* Written down here: total_bytes is the write-callback total, not a
        getinfo figure, so the two sizes can never disagree. */
     resp->total_bytes = (int)buf.len;
+    if (transport != 0) {
+        resp->error_msg = make_error_msg(r->url, transport);
+        resp->error_detail = make_error_detail(r->url, transport);
+    }
     return resp;
 }
 
@@ -388,6 +471,21 @@ char *http_response_body(struct HttpResponse *r) { return r->body; }
 int http_response_body_len(struct HttpResponse *r) { return r->body_len; }
 int http_response_total_bytes(struct HttpResponse *r) { return r->total_bytes; }
 int http_response_error(struct HttpResponse *r) { return r->error; }
+
+const char *http_response_error_msg(struct HttpResponse *r)
+{
+    return r->error_msg != NULL ? r->error_msg : "";
+}
+
+const char *http_response_error_detail(struct HttpResponse *r)
+{
+    return r->error_detail != NULL ? r->error_detail : "";
+}
+
+int http_response_is_ok(struct HttpResponse *r)
+{
+    return r->status >= 200 && r->status < 300 && r->error == 0;
+}
 
 /*
  * Single ownership: the pointer leaves the response and the response forgets
@@ -453,6 +551,10 @@ static void response_destroy(struct HttpResponse *r)
     }
     free(r->body);
     r->body = NULL;
+    free(r->error_msg);
+    r->error_msg = NULL;
+    free(r->error_detail);
+    r->error_detail = NULL;
     g_response_free_count = g_response_free_count + 1;
     free(r);
 }
@@ -482,6 +584,8 @@ int http_shim_response_free_count(void) { return g_response_free_count; }
  * Note that connect and total timeouts both surface as 28 here.
  */
 int http_shim_last_curl_code(void) { return g_last_curl_code; }
+
+void http_shim_inject_curl_code(int code) { g_injected_curl_code = code; }
 
 const char *http_shim_header_line(struct HttpRequest *r, int index)
 {

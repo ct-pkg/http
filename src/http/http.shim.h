@@ -60,6 +60,8 @@ struct HttpResponse {
     int body_len;     /* bytes in body, so an embedded NUL survives */
     int total_bytes;  /* bytes accumulated by the write callback */
     int error;        /* 0, a positive CURLcode, or a negative local code */
+    char *error_msg;  /* owned; "<stage>: <host> (code N)", NULL when clean */
+    char *error_detail; /* owned; "code=N stage=S host=H", reproducible */
 };
 
 /* Construction and configuration. */
@@ -92,6 +94,13 @@ int http_response_total_bytes(struct HttpResponse *r);
    An HTTP 4xx/5xx is not an error here: status carries that. */
 int http_response_error(struct HttpResponse *r);
 
+/* Human text and a deterministic detail string; both "" when error is 0. */
+const char *http_response_error_msg(struct HttpResponse *r);
+const char *http_response_error_detail(struct HttpResponse *r);
+
+/* 2xx with no transport/local error. Never true for 3xx/4xx/5xx. */
+int http_response_is_ok(struct HttpResponse *r);
+
 /* Move the body out: the response stops owning it (body becomes NULL and
    body_len 0), the caller must free() the returned pointer exactly once. */
 char *http_response_take_body(struct HttpResponse *r);
@@ -115,6 +124,13 @@ int http_shim_response_free_count(void);
 
 /* Test hook: raw CURLcode of the last send (0 = none, 28 = timed out). */
 int http_shim_last_curl_code(void);
+
+/*
+ * Test hook: make the next send report this CURLcode instead of performing.
+ * Codes such as 6/60/42/23 cannot be produced offline and deterministically;
+ * 7 and 28 are covered by real transfers.
+ */
+void http_shim_inject_curl_code(int code);
 
 /* Test hook: the index-th accepted header as "Name: value", NULL past the end. */
 const char *http_shim_header_line(struct HttpRequest *r, int index);
