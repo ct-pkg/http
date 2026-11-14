@@ -287,6 +287,9 @@ p7-chunks)
 p7-body-nul | p7-chunked)
     run_cc_server
     ;;
+p7-abort)
+    run_cc_server
+    ;;
 phase1_no_mapping)
     run_negative
     ;;
