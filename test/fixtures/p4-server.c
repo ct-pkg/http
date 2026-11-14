@@ -102,6 +102,26 @@ static void route(int fd, const char *path)
         send_all(fd, "{\"use", 5);
         select(0, NULL, NULL, NULL, &tv);
         send_all(fd, "rs\":3}", 6);
+    } else if (strcmp(path, "/stall") == 0) {
+        static const char head[] =
+            "HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\n";
+        send_all(fd, head, sizeof head - 1);
+        send_all(fd, "x", 1);
+        sleep(3);
+    } else if (strcmp(path, "/slow") == 0) {
+        static const char head[] =
+            "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\n";
+        struct timeval tv;
+        int i;
+        tv.tv_sec = 0;
+        tv.tv_usec = 200000;
+        send_all(fd, head, sizeof head - 1);
+        for (i = 0; i < 5; i++) {
+            send_all(fd, "x", 1);
+            if (i < 4) {
+                select(0, NULL, NULL, NULL, &tv);
+            }
+        }
     } else if (strcmp(path, "/hang") == 0) {
         static const char resp[] =
             "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok";
