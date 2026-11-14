@@ -31,6 +31,21 @@ fail() {
     exit 1
 }
 
+run_ct() {
+    log="$tmp/$task.build.log"
+    (
+        cd "$tmp" || exit 1
+        "$CT_BIN" build "$fixtures/$task.ct" -I "$repo/src" -o "$task" \
+            --outdir "$tmp/$task" --cflags "-Wall -Wextra -Werror"
+    ) >"$log" 2>&1 || { cat "$log" >&2; fail "ct build failed"; }
+    grep -q 'warning:' "$log" && { cat "$log" >&2; fail "build emitted warning:"; }
+    "$tmp/$task" >"$tmp/$task.out" 2>&1 \
+        || { cat "$tmp/$task.out" >&2; fail "fixture failed"; }
+    diff -u "$fixtures/$task.expected.out" "$tmp/$task.out" \
+        || fail "output mismatch"
+    printf 'ok %s\n' "$task"
+}
+
 run_abi() {
     log="$tmp/$task.build.log"
     "$CC_BIN" -std=c99 -Wall -Wextra -Werror -I "$repo/src/http" \
@@ -46,6 +61,9 @@ run_abi() {
 case "$task" in
 phase1_abi)
     run_abi
+    ;;
+phase1_chain | phase1_var)
+    run_ct
     ;;
 *)
     echo "no wired fixture for '$task'; nothing ran" >&2

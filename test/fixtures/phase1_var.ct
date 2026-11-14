@@ -1,0 +1,15 @@
+import http::http;
+import http::Types;
+
+#include <stdio.h>
+
+int main(void)
+{
+    CRequest *req = "https://api.example.com/users"->post();
+    req->header("Accept", "application/json");
+    req->timeout(3000);
+
+    CResponse *res = req->send();
+    printf("%d %s %d\n", res->status(), res->body(), HttpTimeoutDefaultMs);
+    return 0;
+}
