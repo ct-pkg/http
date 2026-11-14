@@ -29,7 +29,7 @@
 | T3 | `2f776cf` | `903fafb` | [T3.md](../../reviews/PH-6/T3.md) |
 | T4 | `5377ef9` | `1efd26a` | [T4.md](../../reviews/PH-6/T4.md) |
 | T5 | `42235bc` | `5b4b798` | [T5.md](../../reviews/PH-6/T5.md) |
-| T6 | `a1180df` | 见 `docs: PH6-T6 超时面与收口` | [T6.md](../../reviews/PH-6/T6.md) |
+| T6 | `a1180df` | `9e78023` | [T6.md](../../reviews/PH-6/T6.md) |
 
 每对相邻：`test` 提交的父提交即 `feat`/`docs` 的前一状态，红证 baseline 与之一致。
 
