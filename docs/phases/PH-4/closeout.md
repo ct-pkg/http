@@ -29,7 +29,7 @@
 | T2 | `81c5a60` | `876f317` | [T2.md](../../reviews/PH-4/T2.md) |
 | T3 | `f5d665c` | `a1fb667` | [T3.md](../../reviews/PH-4/T3.md) |
 | T4 | `3c5672f` | `f3ba523` | [T4.md](../../reviews/PH-4/T4.md) |
-| T5 | `68e333d` | `T5-DOCS-SHA` | [T5.md](../../reviews/PH-4/T5.md) |
+| T5 | `68e333d` | `c0cf8f4` | [T5.md](../../reviews/PH-4/T5.md) |
 
 ## 3. 交付物
 
