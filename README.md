@@ -3,17 +3,16 @@
 `libcurl` easy handle 的 HTTP 客户端包。对外是链式接口：字符串起手，请求对象承载配置，
 响应对象只读。
 
-- 版本：0.1.0（phase 3：请求配置与本地校验；`send()` 仍是固定值 stub）
+- 版本：0.1.0（phase 4：同步执行与响应读取面）
 - 许可：MIT（`.ct` / shim / 测试）+ curl 原许可（链接的系统 libcurl）
 - 平台：macOS 与 Linux 的系统 libcurl
 - 规划：[0.1.0 roadmap](docs/planning/ct-http-0.1.0-roadmap.md)、
   [feature 划分](docs/planning/ct-http-0.1.0-features.md)
-- 当前 phase 卡：[PH-3](docs/phases/PH-3/card.md)
+- 当前 phase 卡：[PH-4](docs/phases/PH-4/card.md)
 - 设计稿：[docs/design.md](docs/design.md)
 
-> **`send()` 还不发网络**：shim 返回固定的 `200` 与一段 JSON。
-> 真实请求在 phase 4 接入；phase 2 已让 `curl_easy_init` / `curl_easy_cleanup`
-> 真实发生，phase 3 已让配置写进 easy handle 并做本地校验。
+> **`send()` 真的发请求**：phase 4 起 shim 调用 `curl_easy_perform`，状态码与 body
+> 来自网络；连不上或超时返回 `status == 0` 的响应对象，释放路径不变。
 
 ## 用法
 
@@ -31,7 +30,7 @@ int main(void)
                      ->send()
                      ->status();
 
-    printf("%d\n", status);   /* phase 1 stub: 200 */
+    printf("%d\n", status);   /* 200 from the server */
     return 0;
 }
 ```
@@ -68,7 +67,29 @@ req->free();
   负数码，easy handle 另设 `CURLOPT_PROTOCOLS_STR=http,https` 兜底。
 - 本地校验码目前是 shim 内部字段（`HTTP_LOCAL_ERR_*`，-1001…-1005），
   **不是公开错误面**；公开错误码在 phase 5 裁定。
-- `phase 3` 不调用 `curl_easy_perform`：`send()` 仍返回固定值。
+- `phase 4` 起 `send()` 真的调用 `curl_easy_perform`；本地校验失败的请求不会离开进程。
+
+## 响应面（phase 4）
+
+响应对象只读，释放仍是显式的：
+
+| 方法 | 作用 |
+| --- | --- |
+| `status()` | HTTP 状态码；传输失败时为 `0` |
+| `body()` | 响应体首地址；NUL 结尾，但长度只认 `body_len()` |
+| `body_len()` | 响应体字节数，内嵌 NUL 不截断 |
+| `total_bytes()` | write 回调累计字节，与 `body_len()` 同源 |
+| `take_body()` | 取走 body：响应侧置空、`body_len()` 归零，调用方负责 `free` 一次 |
+| `free()` | 释放响应；`take_body()` 之后不再持有 body |
+
+- **`take_body` 是所有权转移，不是借用**：取走后原响应的 `free()` 不会重复释放
+  （ASAN 正例 `p4-take-body`，负例 `p4-take-body-bad` 证明断言不是空转）。
+- **超时边界**：连接超时与总超时在 libcurl 侧都是 `CURLE_OPERATION_TIMEDOUT`(28)，
+  调用方拿不到「哪个超时触发」的信息。区分它们需要 shim 自己记录阶段与计时
+  （连接时间、write 首字节时间戳、进度回调空档），留到 phase 6。
+- **失败码**：`http_shim_last_curl_code()` 只是测试钩子，不是公开错误面；公开错误模型在 phase 5。
+- **响应头读取不在 phase 4**：属待裁定项（S-01），即使实现成本只有约 1 个任务
+  （header 回调 + 存储 + 查询）也未加入。
 
 ## 构建
 
@@ -137,7 +158,7 @@ ct install
 ```sh
 bash tools/check.sh g0     # 规约纳管：spec 块 + 实例化表 + session-map + 版本落点
 bash tools/check.sh g1     # 卡片十项 + 任务七列 + 判据/任务摘要冻结
-bash tools/check.sh g3     # 夹具构建 + 运行 + 负例 + shim 生命周期/释放 + 配置面
+bash tools/check.sh g3     # 夹具构建 + 运行 + 负例 + 生命周期/释放 + 配置面 + 真执行响应面
 bash test/gates/g1_negative.sh   # 证明 g1 会拒绝篡改卡
 ```
 
