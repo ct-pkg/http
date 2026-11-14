@@ -565,6 +565,7 @@ struct StreamSink {
     HttpChunkCb cb;
     void *ud;
     size_t delivered;
+    int aborted;
 };
 
 static size_t stream_write_cb(char *ptr, size_t size, size_t nmemb, void *ud)
@@ -574,11 +575,12 @@ static size_t stream_write_cb(char *ptr, size_t size, size_t nmemb, void *ud)
     if (n == 0) {
         return 0;
     }
-    if (s->cb != NULL) {
-        /* Phase 7 T1 delivers; T2 turns a non-zero return into an abort. */
-        (void)s->cb(ptr, (int)n, s->ud);
-    }
+    /* Count before the call: the chunk was handed over even if it aborts. */
     s->delivered = s->delivered + n;
+    if (s->cb != NULL && s->cb(ptr, (int)n, s->ud) != 0) {
+        s->aborted = 1;
+        return 0; /* libcurl reports CURLE_WRITE_ERROR(23) */
+    }
     return n;
 }
 
@@ -614,6 +616,7 @@ static struct HttpResponse *real_send_stream(struct HttpRequest *r,
     sink.cb = cb;
     sink.ud = ud;
     sink.delivered = 0;
+    sink.aborted = 0;
 
     CURL *easy = (CURL *)r->easy;
     curl_easy_setopt(easy, CURLOPT_URL, r->url);
@@ -634,12 +637,12 @@ static struct HttpResponse *real_send_stream(struct HttpRequest *r,
         curl_easy_getinfo(easy, CURLINFO_RESPONSE_CODE, &code);
     }
     resp->status = (int)code;
-    resp->error = transport;
+    resp->error = sink.aborted ? (int)CURLE_WRITE_ERROR : transport;
     resp->total_bytes = (int)sink.delivered;
-    if (transport != 0) {
-        resp->error_msg = make_error_msg(r->url, transport);
+    if (resp->error != 0) {
+        resp->error_msg = make_error_msg(r->url, resp->error);
         resp->error_detail =
-            make_error_detail(r->url, transport, HTTP_TIMEOUT_NONE);
+            make_error_detail(r->url, resp->error, HTTP_TIMEOUT_NONE);
     }
     return resp;
 }
