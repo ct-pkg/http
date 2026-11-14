@@ -28,7 +28,7 @@
 | T2 | `df023cb` | `d4aa296` | [T2.md](../../reviews/PH-5/T2.md) |
 | T3 | `f2c0129`（基线即绿） | 无实现提交 | [T3.md](../../reviews/PH-5/T3.md) |
 | T4 | `e19e189` | `d4ebe1a` | [T4.md](../../reviews/PH-5/T4.md) |
-| T5 | `6ee682c` | `T5-DOCS-SHA` | [T5.md](../../reviews/PH-5/T5.md) |
+| T5 | `6ee682c` | `1afcd39` | [T5.md](../../reviews/PH-5/T5.md) |
 
 ## 3. 交付物
 
