@@ -254,6 +254,12 @@ p4-timeout)
 p5-local)
     run_cc
     ;;
+p5-table)
+    run_cc
+    ;;
+p5-http-error)
+    run_cc_server
+    ;;
 phase1_no_mapping)
     run_negative
     ;;
