@@ -147,6 +147,9 @@ p2-after-send)
 p2-response-free)
     run_cc
     ;;
+p2-ops)
+    run_cc
+    ;;
 phase1_no_mapping)
     run_negative
     ;;
