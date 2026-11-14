@@ -432,11 +432,16 @@ static size_t write_cb(char *ptr, size_t size, size_t nmemb, void *ud)
 static int xfer_cb(void *ud, curl_off_t dlt, curl_off_t dln,
                    curl_off_t ult, curl_off_t uln)
 {
-    (void)ud;
+    struct XferState *s = (struct XferState *)ud;
     (void)dlt;
     (void)dln;
     (void)ult;
     (void)uln;
+    if (s->idle_ms > 0
+        && now_us() - s->last_us >= (int64_t)s->idle_ms * 1000) {
+        s->idle_fired = 1;
+        return 1; /* aborts the transfer with CURLE_ABORTED_BY_CALLBACK */
+    }
     return 0;
 }
 
@@ -512,13 +517,15 @@ static struct HttpResponse *real_send(struct HttpRequest *r)
         curl_easy_getinfo(easy, CURLINFO_RESPONSE_CODE, &code);
     }
     resp->status = (int)code;
-    resp->error = transport;
     /*
      * A bare 28 says "timed out", never which limit. Judge at the point the
      * transfer returns: if libcurl never completed the connection and the
      * configured connect limit has elapsed, the connect phase ran out; any
-     * other 28 is the total limit.
+     * other 28 is the total limit. An idle abort arrives as 42 from our own
+     * progress callback and is reported as 28 with kind IDLE, so the timeout
+     * family stays one code.
      */
+    int error = transport;
     if (transport == (int)CURLE_OPERATION_TIMEDOUT) {
         curl_off_t connect_us = 0;
         if (g_injected_curl_code == 0) {
@@ -530,15 +537,19 @@ static struct HttpResponse *real_send(struct HttpRequest *r)
         } else {
             resp->timeout_kind = HTTP_TIMEOUT_TOTAL;
         }
+    } else if (xfer.idle_fired) {
+        error = (int)CURLE_OPERATION_TIMEDOUT;
+        resp->timeout_kind = HTTP_TIMEOUT_IDLE;
     }
+    resp->error = error;
     resp->body = buf.data != NULL ? buf.data : dup_string("");
     resp->body_len = (int)buf.len;
     /* Written down here: total_bytes is the write-callback total, not a
        getinfo figure, so the two sizes can never disagree. */
     resp->total_bytes = (int)buf.len;
-    if (transport != 0) {
-        resp->error_msg = make_error_msg(r->url, transport);
-        resp->error_detail = make_error_detail(r->url, transport, resp->timeout_kind);
+    if (error != 0) {
+        resp->error_msg = make_error_msg(r->url, error);
+        resp->error_detail = make_error_detail(r->url, error, resp->timeout_kind);
     }
     return resp;
 }
