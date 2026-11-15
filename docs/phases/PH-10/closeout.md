@@ -12,7 +12,7 @@
 | --- | --- | --- |
 | E-P10-1 | **不计通过** | macOS：`ok g3 (… 55 个夹具 …)`，`rc=0`。Linux：`command -v podman` / `command -v docker` 均 `rc=1`，无容器；缺 Linux `ct` 二进制。见 §4.1 |
 | E-P10-2 | 通过 | 十道门禁逐条 `rc=0`，见 §3 |
-| E-P10-3 | 通过 | `ok g4 (109 docs <= 300 lines, 8 snippets compiled, 13 blocks bound, anchors/applies/readme/version ok)`，`rc=0`；`g4_negative.sh` 打印 `rejected snippet/impl-chain`，`rc=0` |
+| E-P10-3 | 通过 | `ok g4 (120 docs <= 300 lines, 8 snippets compiled, 13 blocks bound, anchors/applies/readme/version ok)`，`rc=0`；`g4_negative.sh` 打印 `rejected snippet/impl-chain`，`rc=0` |
 | E-P10-4 | 通过（卡内本地形态） | `bash test/gates/p10_install.sh` → `install ok` / `200`，`rc=0`；roadmap 裸名形态不可执行，见 §4.3 |
 | E-P10-5 | 通过 | `ok g4 (… version ok)`，`rc=0`；`ct.pkg#version` 与 README 版本行均为 `0.1.0`，CHANGELOG 首条一致；`git tag` 为空，提案见 §5 |
 
@@ -24,9 +24,9 @@ E-P10-1 的 macOS 半边达成、Linux 半边不可执行，按「达不成的�
 | 任务 | verify | 结果 | 红证 |
 | --- | --- | --- | --- |
 | T1 g2 | `bash tools/check.sh g2` | `ok g2 (19 requirements mapped, 24 ACC entries, anchors resolve)` | T1.md |
-| T2 g4 | `bash tools/check.sh g4` | `ok g4 (109 docs …)` | T2.md |
-| T3 g5/g6 | `bash tools/check.sh g5 && g6` | `ok g5 (60 task evidence files, 9 gate negatives exercised)`；`ok g6 (2 issues …)` | T3.md |
-| T4 g7/g8/g9 | `bash tools/check.sh g7 && g8 && g9` | `ok g7 (254 files scanned … 7 sanitizer fixtures)`；`ok g8 (10 cards frozen, 5 commits in scope …)`；`ok g9 (spec 1.9.0 …)` | T4.md |
+| T2 g4 | `bash tools/check.sh g4` | `ok g4 (120 docs …)` | T2.md |
+| T3 g5/g6 | `bash tools/check.sh g5 && g6` | `ok g5 (60 task evidence files, 9 gate negatives exercised)`；`ok g6 (3 issues …)` | T3.md |
+| T4 g7/g8/g9 | `bash tools/check.sh g7 && g8 && g9` | `ok g7 (265 files scanned … 7 sanitizer fixtures)`；`ok g8 (10 cards frozen, 6 commits in scope …)`；`ok g9 (spec 1.9.0 …)` | T4.md |
 | T5 README 分拆 | `test -f docs/tutorial/01-concepts.md && bash tools/check.sh g4` | `rc=0` | T5.md |
 | T6 台账与发布 | `bash tools/check.sh g6` | `ok g6 (2 issues …)` | T6.md |
 | T7 安装 | `bash test/gates/p10_install.sh` | `install ok` / `200`，`rc=0` | T7.md |
@@ -49,17 +49,17 @@ ok g2 (19 requirements mapped, 24 ACC entries, anchors resolve)
 ok g3 (abi, chain, variable landing, negative import, shim lifecycle, release, response ownership, ops, request config, response bytes, take_body, failure codes, error model, predicates, timeouts, streaming, cancellation, lifetime, redirects, credentials, downgrade)
 == g4 rc=0
 note g4-version: PATCH accounting deferred by deviation V-001 (0.1.0 number line)
-ok g4 (109 docs <= 300 lines, 8 snippets compiled, 13 blocks bound, anchors/applies/readme/version ok)
+ok g4 (120 docs <= 300 lines, 8 snippets compiled, 13 blocks bound, anchors/applies/readme/version ok)
 == g5 rc=0
 ok g5 (60 task evidence files, 9 gate negatives exercised)
 == g6 rc=0
 note g6-pool: no docs/pool.md in this project
-ok g6 (2 issues, status/evidence legal, unmet criteria traced)
+ok g6 (3 issues, status/evidence legal, unmet criteria traced)
 == g7 rc=0
-ok g7 (254 files scanned, deps consistent, 7 sanitizer fixtures)
+ok g7 (265 files scanned, deps consistent, 7 sanitizer fixtures)
 == g8 rc=0
 note g8-tag: v0.1.0 not created (deviation V-002)
-ok g8 (10 cards frozen, 5 commits in scope, version/tag rules)
+ok g8 (10 cards frozen, 6 commits in scope, version/tag rules)
 == g9 rc=0
 ok g9 (spec 1.9.0, sha256 matches master)
 ```
@@ -161,3 +161,6 @@ git push origin v0.1.0                      # 用户授权后
 
 上游勘误提交（PH-9 收口修正）：`docs/errata.md` 的 `ERR-001`，PH-9 卡片原文与
 「不计通过」记录均未改动。
+
+收口提交本身也在 g8 的统计范围内，因此 §3 的数字是收口提交后的复跑值；此后如再追加
+纯文档提交（仅修正本文件的数字），`g8` 的 in-scope 计数会随之增加，判定仍为绿。
