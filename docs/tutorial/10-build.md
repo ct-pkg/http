@@ -4,7 +4,7 @@
 
 <!-- snippet: docs/snippets/build.sh -->
 ```text
-ct build main.ct -I src -o app --outdir build \
+ct build main.ct -I . -o app --outdir build \
     --cflags "-Wall -Wextra -Werror" --ldflags "-lcurl"
 ```
 
@@ -32,7 +32,7 @@ int main(void)
 
 ## 接口约定（0.1.0 冻结）
 
-1. **必须 `import http::http;`**。公开面是映射单元 `src/http/http.m.ct`；方法只随它出现。
+1. **必须 `import http::http;`**。公开面是映射单元 `http/http.m.ct`；方法只随它出现。
 2. **只 import 类型/常量单元不会带来方法**。只写 `import http::Types;` 时，
    `"url"->post()` 报 `no method 'post' for type 'char *'`。这条是门禁 E-P1-4 的断言。
 3. **常量单元换 base**。`Types.h.ct` 与 `http.m.ct` 同目录不同 base；同 base 的

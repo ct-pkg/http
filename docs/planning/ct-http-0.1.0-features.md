@@ -143,7 +143,7 @@
 | --- | --- | --- |
 | M-01 | 单表达式链不成立，一条语句一个方法 | **部分失效**：`impl` 链仍不成立；类型宿主静态映射链成立。需把结论收窄到 `impl`。 |
 | M-02 | `HttpRequest::new()` 不成立，改 `HttpRequest.new()` | **失效**：构造改为 `char *` factory，不再有 `new()`。 |
-| M-03 | `src/` 与 namespace 二选一 | 本 roadmap 采用 `src/http/` + `namespace http;`；发布前仍需确认。 |
+| M-03 | `src/` 与 namespace 二选一 | 已收口：2026-11-15 采用包根 `http/`（PH-10，HTTP-2 选①）。 |
 | M-04 | 配置方法计数为 8 | **需重数**：去掉 `url()`，增加空闲超时/上限类方法，数量变化。 |
 | M-05 | `body()` 深拷贝还是借用未定 | **定为深拷贝**（F-01/F-15）。 |
 | M-06 | `HttpResponse *` 谁释放未定 | **定为显式 `http_response_free`**（F-10）。 |

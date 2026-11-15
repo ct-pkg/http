@@ -30,7 +30,7 @@
 
 <!-- snippet: docs/snippets/build.sh -->
 ```text
-ct build main.ct -I src -o app --outdir build \
+ct build main.ct -I . -o app --outdir build \
     --cflags "-Wall -Wextra -Werror" --ldflags "-lcurl"
 ```
 
@@ -42,10 +42,10 @@ ct get http@^0.1.0
 ct install
 ```
 
-本机没有已发布索引与 tag，`ct get http@^0.1.0`（裸名）不可执行；本地目录 spec 可跑通，
-但 `ct install` 打印的 `-I vendor/http` 与 `src/` 布局不符，需显式 `-I vendor/http/src`，
-已立 [`issues/HTTP-2.md`](issues/HTTP-2.md)。可复跑的本地形态见
-`test/gates/p10_install.sh`。
+本机没有已发布索引与 tag，`ct get http@^0.1.0`（裸名）不可执行；本地目录 spec 可跑通：
+包根布局是 `http/`，`ct install` 打印的 `-I vendor/http` 可直接使用。可复跑的本地形态见
+`test/gates/p10_install.sh`；`ct install` 的 include 前缀约定作为提案记录在
+[`docs/proposals/ct-install-include-prefix.md`](docs/proposals/ct-install-include-prefix.md)。
 
 ## 最小可运行示例
 

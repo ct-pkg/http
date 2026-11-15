@@ -13,7 +13,7 @@
 | `CRequest *` | `post()` | 配置（setter 返回同一指针）+ 执行 + `free()` |
 | `CResponse *` | `send()` / `send_stream()` | 只读视图 + `take_body()` + `free()` |
 
-映射单元是 `src/http/http.m.ct`，所以使用方必须 `import http::http;`。
+映射单元是 `http/http.m.ct`，所以使用方必须 `import http::http;`。
 只 import `http::Types` 时方法不存在，构建会报 `no method 'post' for type 'char *'`。
 
 ## 指针宿主用 `->`

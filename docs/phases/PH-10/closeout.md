@@ -114,6 +114,10 @@ podman run --rm -v "$PWD":/w -w /w \
   假绿出在文档与用户预期层：旧 README 的配置面让人以为 `header()` 已生效。该叙述已在
   PH-10 重写（README「配置面」→ `docs/tutorial/03-config.md`，并指向重定向篇的线上验证）。
 - 已立案：`issues/HTTP-1.md`（status `open`，处置段记 `d0160db`，待 REV 复核为 `verified`）。
+- **复核完成（2026-11-15，主控/用户授权）**：基线 `d0160db^` 的 shim 配当前夹具得
+  `same auth 0 cookie 0 proxy 0` / `same referer 0`；HEAD 得 `same auth 1 cookie 1 proxy 1` /
+  `same referer 1`。结论成立，`issues/HTTP-1.md` 已转 `verified`，
+  原始输出见 `docs/reviews/PH-10/HTTP-1-verify.md`。
 
 ### 4.3 E-P10-4 的裸名形态：不可执行
 
@@ -123,6 +127,11 @@ podman run --rm -v "$PWD":/w -w /w \
   `ct get /Users/samxx/trae-ws/ct-http` → `ct install` → `ct verify` → 构建样例 → 回环 `200`。
 - 差异：`ct install` 打印 `-I vendor/http`，而本包按设计 D-1 把单元放在 `src/http/`，
   消费端需 `-I vendor/http/src`；已立 `issues/HTTP-2.md`，未在本轮改目录布局。
+- **收口更新（2026-11-15，用户裁定选①）**：布局已改为包根 `http/`（`git mv src/http http`），
+  `ct install` 打印的 `-I vendor/http` 与真实包含根一致，差异消失。
+  `p10_install.sh` 断言安装行含 `-I vendor/http` 且不含 `-I vendor/http/src`，样例 `200`；
+  重跑输出见 `docs/reviews/PH-10/HTTP-2-verify.md`。上游前缀约定另立提案
+  `docs/proposals/ct-install-include-prefix.md`（未改 ct-lang 仓库）。
 
 ### 4.4 ASAN 符号化挂起（环境修正，非判据放宽）
 

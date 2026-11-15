@@ -44,15 +44,16 @@
 
 ## 2. 决策
 
-### D-1 目录：`src/` + `test/`（与 ct-pkg 既有惯例不同，待裁定）
+### D-1 目录：包根 `http/` + `test/`（2026-11-15 收口）
 
-- 本仓按用户指定清单建：`src/`（源码单元）、`test/`（测试）、`docs/`、`tools/`。
+- 本仓按用户指定清单建：`http/`（源码单元）、`test/`（测试）、`docs/`、`tools/`。
 - 既有惯例（`docs/package-guide.md` §1、`ct-lang/docs/history/design/phase18.md` 18.1、
   `ct-pkg/curl`）是“包根即包根、单元与 `ct.pkg` 并列”，单元带 `namespace` 时必须坐在
   同名目录（D13 方案 A）。curl 实际用 `curl/` + `tests/`，没有 `src/`。
-- 风险：若 `src/` 里的单元声明 `namespace http;`，`ct build --ns-root` 会报目录不匹配。
-  当前决定：**H1 的单元不声明 namespace**；若之后要 namespace，按 D13 迁到 `http/` 或
-  放弃 `--ns-root` 校验。发布前必须收口这一条。
+- 风险：若单元声明 `namespace http;` 而目录不匹配，`ct build --ns-root` 会报错。
+- **裁定（2026-11-15，HTTP-2 选①）**：包根改为 `http/`，`src/` 删除。`ct install` 打印的
+  `-I vendor/http` 因此与真实包含根一致，消费端不需要额外的 `src` 前缀。
+  改动只挪路径，不改映射与 `namespace`；门禁与夹具同步更新。
 
 ### D-2 配置不用单表达式链
 
