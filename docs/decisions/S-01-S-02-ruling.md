@@ -5,6 +5,9 @@
 - 签字：负责人 2026-11-15（三条裁定，逐条见下）。
 - 范围：把 `docs/planning/ct-http-0.1.0-features.md` §3 的 S-02 与 S-01 从「待裁定」改成「已裁定」，
   并改写 `docs/requirements.md` 的 R-04/R-10/R-11 非目标。**不**开卡、不写任务清单。
+- 证据链：[PH-12 开卡 battle · 主张方](../reviews/PH-12-battle-open.md)、
+  [PH-12 开卡 battle · 反方](../reviews/battle-ph12-s01-s02-con.md)；两篇为裁定前的事实核对与对辩，
+  结论以本文件为准。
 
 ## 1. S-02 `method()`：新增入口，不动 `post()`
 
