@@ -35,7 +35,7 @@ run_ct() {
     log="$tmp/$task.build.log"
     (
         cd "$tmp" || exit 1
-        "$CT_BIN" build "$fixtures/$task.ct" -I "$repo/src" -o "$task" \
+        "$CT_BIN" build "$fixtures/$task.ct" -I "$repo" -o "$task" \
             --outdir "$tmp/build-$task" \
             --cflags "-Wall -Wextra -Werror" --ldflags "-lcurl"
     ) >"$log" 2>&1 || { cat "$log" >&2; fail "ct build failed"; }
@@ -53,7 +53,7 @@ run_ct_server() {
     log="$tmp/$task.build.log"
     (
         cd "$tmp" || exit 1
-        "$CT_BIN" build "$fixtures/$task.ct" -I "$repo/src" -o "$task" \
+        "$CT_BIN" build "$fixtures/$task.ct" -I "$repo" -o "$task" \
             --outdir "$tmp/build-$task" \
             --cflags "-I $fixtures -Wall -Wextra -Werror" \
             --ldflags "$fixtures/p4-server.c -lcurl"
@@ -68,8 +68,8 @@ run_ct_server() {
 
 run_cc_server() {
     log="$tmp/$task.build.log"
-    "$CC_BIN" -std=c99 -Wall -Wextra -Werror -I "$repo/src/http" -I "$fixtures" \
-        "$fixtures/$task.c" "$fixtures/p4-server.c" "$repo/src/http/http.shim.c" \
+    "$CC_BIN" -std=c99 -Wall -Wextra -Werror -I "$repo/http" -I "$fixtures" \
+        "$fixtures/$task.c" "$fixtures/p4-server.c" "$repo/http/http.shim.c" \
         -lcurl -o "$tmp/$task" >"$log" 2>&1 \
         || { cat "$log" >&2; fail "cc failed"; }
     "$tmp/$task" >"$tmp/$task.out" 2>&1 \
@@ -82,8 +82,8 @@ run_cc_server() {
 # PH-9 fixtures carry their own redirect server (p9-server.c).
 run_cc_p9_server() {
     log="$tmp/$task.build.log"
-    "$CC_BIN" -std=c99 -Wall -Wextra -Werror -I "$repo/src/http" -I "$fixtures" \
-        "$fixtures/$task.c" "$fixtures/p9-server.c" "$repo/src/http/http.shim.c" \
+    "$CC_BIN" -std=c99 -Wall -Wextra -Werror -I "$repo/http" -I "$fixtures" \
+        "$fixtures/$task.c" "$fixtures/p9-server.c" "$repo/http/http.shim.c" \
         -lcurl -o "$tmp/$task" >"$log" 2>&1 \
         || { cat "$log" >&2; fail "cc failed"; }
     "$tmp/$task" >"$tmp/$task.out" 2>&1 \
@@ -109,8 +109,8 @@ run_p9_downgrade() {
         || { cat "$tmp/p9-cert.log" >&2; fail "openssl cert generation failed"; }
 
     log="$tmp/$task.build.log"
-    "$CC_BIN" -std=c99 -Wall -Wextra -Werror -I "$repo/src/http" -I "$fixtures" \
-        "$fixtures/$task.c" "$fixtures/p9-server.c" "$repo/src/http/http.shim.c" \
+    "$CC_BIN" -std=c99 -Wall -Wextra -Werror -I "$repo/http" -I "$fixtures" \
+        "$fixtures/$task.c" "$fixtures/p9-server.c" "$repo/http/http.shim.c" \
         -lcurl -o "$tmp/$task" >"$log" 2>&1 \
         || { cat "$log" >&2; fail "cc failed"; }
     "$tmp/$task" "$certdir" "$fixtures/p9-tls-redirect.py" >"$tmp/$task.out" 2>&1 \
@@ -124,8 +124,8 @@ run_p9_downgrade() {
 run_asan_positive_server() {
     log="$tmp/$task.build.log"
     "$CC_BIN" -std=c99 -g -fsanitize=address -Wall -Wextra -Werror \
-        -I "$repo/src/http" -I "$fixtures" \
-        "$fixtures/$task.c" "$fixtures/p4-server.c" "$repo/src/http/http.shim.c" \
+        -I "$repo/http" -I "$fixtures" \
+        "$fixtures/$task.c" "$fixtures/p4-server.c" "$repo/http/http.shim.c" \
         -lcurl -o "$tmp/$task" >"$log" 2>&1 \
         || { cat "$log" >&2; fail "cc -fsanitize=address failed"; }
     ASAN_OPTIONS=detect_leaks=0:symbolize=0 "$tmp/$task" >"$tmp/$task.out" 2>&1
@@ -141,8 +141,8 @@ run_asan_positive_server() {
 run_asan_negative_server() {
     log="$tmp/$task.build.log"
     "$CC_BIN" -std=c99 -g -fsanitize=address -Wall -Wextra -Werror \
-        -I "$repo/src/http" -I "$fixtures" \
-        "$fixtures/$task.c" "$fixtures/p4-server.c" "$repo/src/http/http.shim.c" \
+        -I "$repo/http" -I "$fixtures" \
+        "$fixtures/$task.c" "$fixtures/p4-server.c" "$repo/http/http.shim.c" \
         -lcurl -o "$tmp/$task" >"$log" 2>&1 \
         || { cat "$log" >&2; fail "cc -fsanitize=address failed"; }
     ASAN_OPTIONS=detect_leaks=0:symbolize=0 "$tmp/$task" >"$tmp/$task.out" 2>&1
@@ -158,8 +158,8 @@ run_asan_negative_server() {
 run_asan_negative_uaf_server() {
     log="$tmp/$task.build.log"
     "$CC_BIN" -std=c99 -g -fsanitize=address -Wall -Wextra -Werror \
-        -I "$repo/src/http" -I "$fixtures" \
-        "$fixtures/$task.c" "$fixtures/p4-server.c" "$repo/src/http/http.shim.c" \
+        -I "$repo/http" -I "$fixtures" \
+        "$fixtures/$task.c" "$fixtures/p4-server.c" "$repo/http/http.shim.c" \
         -lcurl -o "$tmp/$task" >"$log" 2>&1 \
         || { cat "$log" >&2; fail "cc -fsanitize=address failed"; }
     ASAN_OPTIONS=detect_leaks=0:symbolize=0 "$tmp/$task" >"$tmp/$task.out" 2>&1
@@ -177,10 +177,10 @@ run_nm() {
     log="$tmp/$task.build.log"
     (
         cd "$tmp" || exit 1
-        "$CT_BIN" build "$fixtures/p2-cleanup-once.ct" -I "$repo/src" \
+        "$CT_BIN" build "$fixtures/p2-cleanup-once.ct" -I "$repo" \
             --emit-c -o "$emit"
     ) >"$log" 2>&1 || { cat "$log" >&2; fail "ct build --emit-c failed"; }
-    "$CC_BIN" -std=c99 -Wall -Wextra -Werror -I "$repo/src/http" -I "$emit" \
+    "$CC_BIN" -std=c99 -Wall -Wextra -Werror -I "$repo/http" -I "$emit" \
         -c "$emit/p2-cleanup-once.c" -o "$tmp/$task.o" >"$log" 2>&1 \
         || { cat "$log" >&2; fail "cc -c failed"; }
     if nm -u "$tmp/$task.o" | grep -q '_curl_'; then
@@ -192,8 +192,8 @@ run_nm() {
 
 run_cc() {
     log="$tmp/$task.build.log"
-    "$CC_BIN" -std=c99 -Wall -Wextra -Werror -I "$repo/src/http" \
-        "$fixtures/$task.c" "$repo/src/http/http.shim.c" -lcurl \
+    "$CC_BIN" -std=c99 -Wall -Wextra -Werror -I "$repo/http" \
+        "$fixtures/$task.c" "$repo/http/http.shim.c" -lcurl \
         -o "$tmp/$task" >"$log" 2>&1 \
         || { cat "$log" >&2; fail "cc failed"; }
     "$tmp/$task" >"$tmp/$task.out" 2>&1 \
@@ -207,8 +207,8 @@ run_cc() {
 run_asan_negative() {
     log="$tmp/$task.build.log"
     "$CC_BIN" -std=c99 -g -fsanitize=address -Wall -Wextra -Werror \
-        -I "$repo/src/http" \
-        "$fixtures/$task.c" "$repo/src/http/http.shim.c" -lcurl \
+        -I "$repo/http" \
+        "$fixtures/$task.c" "$repo/http/http.shim.c" -lcurl \
         -o "$tmp/$task" >"$log" 2>&1 \
         || { cat "$log" >&2; fail "cc -fsanitize=address failed"; }
     ASAN_OPTIONS=detect_leaks=0:symbolize=0 "$tmp/$task" >"$tmp/$task.out" 2>&1
@@ -223,7 +223,7 @@ run_negative() {
     log="$tmp/$task.build.log"
     (
         cd "$tmp" || exit 1
-        "$CT_BIN" build "$fixtures/$task.ct" -I "$repo/src" -o "$task" \
+        "$CT_BIN" build "$fixtures/$task.ct" -I "$repo" -o "$task" \
             --outdir "$tmp/build-$task" --cflags "-Wall -Wextra -Werror"
     ) >"$log" 2>&1
     rc=$?
@@ -235,8 +235,8 @@ run_negative() {
 
 run_abi() {
     log="$tmp/$task.build.log"
-    "$CC_BIN" -std=c99 -Wall -Wextra -Werror -I "$repo/src/http" \
-        "$fixtures/phase1_abi.c" "$repo/src/http/http.shim.c" -lcurl \
+    "$CC_BIN" -std=c99 -Wall -Wextra -Werror -I "$repo/http" \
+        "$fixtures/phase1_abi.c" "$repo/http/http.shim.c" -lcurl \
         -o "$tmp/phase1_abi" >"$log" 2>&1 \
         || { cat "$log" >&2; fail "cc failed"; }
     "$tmp/phase1_abi" >"$tmp/phase1_abi.out" 2>&1 \

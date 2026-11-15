@@ -66,7 +66,7 @@ EOF
 g7_deps() {
     repo="$1"
     [ -f "$repo/ct.pkg" ] || fail "g7: missing ct.pkg"
-    [ -f "$repo/src/http/http.shim.c" ] || fail "g7: missing src/http/http.shim.c"
+    [ -f "$repo/http/http.shim.c" ] || fail "g7: missing http/http.shim.c"
 
     ldflags="$(awk -F'=' '/^ldflags[[:space:]]*=/ { sub(/^[^=]*=[[:space:]]*/, ""); print; exit }' "$repo/ct.pkg")"
     for flag in $ldflags; do
@@ -77,8 +77,8 @@ g7_deps() {
         esac
     done
 
-    grep -q '#include <curl/curl.h>' "$repo/src/http/http.shim.c" \
-        || fail "g7: libcurl must stay behind src/http/http.shim.c"
+    grep -q '#include <curl/curl.h>' "$repo/http/http.shim.c" \
+        || fail "g7: libcurl must stay behind http/http.shim.c"
 
     vendored="$(git -C "$repo" ls-files 2>/dev/null | grep -E '^(vendor/|curl/)|(^|/)curl\.(c|h)$' || true)"
     [ -z "$vendored" ] || fail "g7: vendored libcurl is not allowed: $vendored"

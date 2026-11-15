@@ -130,7 +130,7 @@ g8_one_thing() {
         while IFS= read -r f; do
             [ -n "$f" ] || continue
             case "$f" in
-            src/*) cats="$cats code" ;;
+            src/*|http/*) cats="$cats code" ;;
             tools/*|test/*) cats="$cats quality" ;;
             docs/*|*.md|issues/*|ct.pkg|LICENSE) cats="$cats docs" ;;
             esac

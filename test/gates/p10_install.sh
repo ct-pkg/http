@@ -10,9 +10,11 @@
 # against the vendored tree. The sample performs a real POST against a loopback
 # server and must print 200.
 #
-# The printed `ct install` command says `-I vendor/http`; this package keeps its
-# units under `src/` (design D-1), so the sample adds `-I vendor/http/src`.
-# That mismatch is tracked as issues/HTTP-2.md, not hidden here.
+# The printed `ct install` command says `-I vendor/http`. The package keeps its
+# units at the repository root under `http/` (layout decision 2026-11-15), so the
+# printed prefix is exactly what the consumer needs; the sample below uses it
+# verbatim and fails if the install line changes. Background and the upstream
+# proposal: docs/proposals/ct-install-include-prefix.md, issues/HTTP-2.md.
 #
 # License: MIT (see LICENSE).
 
@@ -72,11 +74,15 @@ grep -q 'vendored 1 package' "$tmp/get.log" \
     || { cat "$tmp/install.log" >&2; fail "ct install"; }
 grep -q '^ct build ' "$tmp/install.log" \
     || { cat "$tmp/install.log" >&2; fail "ct install printed no build command"; }
+grep -q -- '-I vendor/http ' "$tmp/install.log" \
+    || { cat "$tmp/install.log" >&2; fail "ct install did not print '-I vendor/http'"; }
+grep -q -- '-I vendor/http/src' "$tmp/install.log" \
+    && { cat "$tmp/install.log" >&2; fail "ct install still prints the src/ include"; }
 
 ( cd "$tmp/app" && "$CT_BIN" verify ) >"$tmp/verify.log" 2>&1 \
     || { cat "$tmp/verify.log" >&2; fail "ct verify"; }
 
-( cd "$tmp/app" && "$CT_BIN" build sample.ct -I vendor/http/src -o sample \
+( cd "$tmp/app" && "$CT_BIN" build sample.ct -I vendor/http -o sample \
       --cflags "-Wall -Wextra -Werror" --ldflags "-lcurl" ) >"$tmp/build.log" 2>&1 \
     || { cat "$tmp/build.log" >&2; fail "sample build against the vendored tree"; }
 

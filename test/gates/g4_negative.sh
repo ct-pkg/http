@@ -30,7 +30,7 @@ mkdir -p "$tmp/snips"
 cat >"$tmp/snips/impl.ct" <<EOF
 import http::http;
 #include <stdio.h>
-#include "$repo/src/http/http.shim.h"
+#include "$repo/http/http.shim.h"
 
 int main(void)
 {

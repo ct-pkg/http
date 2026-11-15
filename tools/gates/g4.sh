@@ -115,7 +115,7 @@ g4_snippets() {
         name="$(basename "$f" .ct)"
         log="$g4_tmp/$name.build.log"
         ( cd "$g4_tmp" &&
-          "$ct_bin" build "$f" -I "$repo/src" -I "$repo/test/fixtures" \
+          "$ct_bin" build "$f" -I "$repo" -I "$repo/test/fixtures" \
               -o "$name" --outdir "$g4_tmp/b-$name" \
               --cflags "-I $repo/test/fixtures -Wall -Wextra -Werror" \
               --ldflags "$repo/test/fixtures/p4-server.c -lcurl" ) >"$log" 2>&1 \
