@@ -1,0 +1,29 @@
+/*
+ * docs/snippets/timeout.ct - one CURLcode(28), three shim-side kinds.
+ */
+import http::http;
+
+#include <stdio.h>
+
+int main(void)
+{
+    CRequest *req = "https://api.example.com/users"->post();
+    req->timeout(3000);          /* total */
+    req->connect_timeout(1000);  /* connect */
+    req->idle_timeout(1500);     /* data gap */
+
+    CResponse *res = req->send();
+
+    if (res->error() == 28) {                 /* CURLE_OPERATION_TIMEDOUT */
+        switch (res->timeout_kind()) {
+        case 1:  printf("connect timeout\n"); break;
+        case 2:  printf("total timeout\n");   break;
+        case 3:  printf("idle timeout\n");    break;
+        default: printf("timeout, kind unknown\n");
+        }
+    }
+
+    res->free();
+    req->free();
+    return 0;
+}

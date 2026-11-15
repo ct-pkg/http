@@ -1,0 +1,27 @@
+/*
+ * docs/snippets/quickstart.ct - the first example, and a gate-run one.
+ * It talks to a loopback server linked from test/fixtures so the output is
+ * frozen: 200 {"users":3}
+ */
+import http::http;
+
+#include <stdio.h>
+#include "p4-server.h"
+
+int main(void)
+{
+    if (p4_server_start() != 0) return 1;
+    char *url = p4_server_url("/200");
+
+    CRequest *req = url->post();
+    req->header("Accept", "application/json");
+    req->timeout(3000);
+
+    CResponse *res = req->send();
+    printf("%d %s\n", res->status(), res->body());
+
+    res->free();
+    req->free();
+    p4_server_stop();
+    return 0;
+}

@@ -1,0 +1,13 @@
+/*
+ * docs/snippets/free.ct - one explicit free per object; .free() is terminal.
+ */
+import http::http;
+
+int main(void)
+{
+    CRequest *r = "https://api.example.com/users"->post();
+    CResponse *res = r->send();
+    res->free();
+    r->free();
+    return 0;
+}

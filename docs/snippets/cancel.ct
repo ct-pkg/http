@@ -1,0 +1,31 @@
+/*
+ * docs/snippets/cancel.ct - same-thread cancellation from inside the callback.
+ */
+import http::http;
+
+#include <stdio.h>
+
+CRequest *g_req;
+
+int on_chunk(char *data, int len, void *ud)
+{
+    (void)data; (void)ud;
+    if (len > 0) {
+        g_req->cancel();     /* set the flag, do not abort this callback */
+    }
+    return 0;                /* a non-zero return is a callback abort (23) */
+}
+
+int main(void)
+{
+    g_req = "https://api.example.com/report"->post();
+    g_req->timeout(10000);
+    CResponse *res = g_req->send_stream(on_chunk, NULL);
+
+    printf("error=%d cancelled=%d ok=%d\n",
+           res->error(), res->is_cancelled(), res->is_ok());
+
+    res->free();
+    g_req->free();
+    return 0;
+}

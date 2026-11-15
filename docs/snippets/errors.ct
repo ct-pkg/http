@@ -1,0 +1,26 @@
+/*
+ * docs/snippets/errors.ct - three outcomes, fixed decision order.
+ */
+import http::http;
+
+#include <stdio.h>
+
+int main(void)
+{
+    CResponse *res = "https://api.example.com/users"->post()->send();
+
+    if (res->is_cancelled()) {
+        printf("cancelled\n");            /* error()==42, phase 8 */
+    } else if (res->error() != 0) {
+        printf("transport %d: %s\n",      /* positive = raw CURLcode */
+               res->error(), res->error_msg());
+    } else if (res->is_ok()) {
+        printf("%d %s\n", res->status(), res->body());
+    } else {
+        printf("http %d %s\n",            /* error==0, status is 4xx/5xx */
+               res->status(), res->body());
+    }
+
+    res->free();
+    return 0;
+}

@@ -1,0 +1,18 @@
+/*
+ * docs/snippets/variable-landing.ct - the chain and the variable landing form
+ * are equivalent. Compile-only: the host is a documentation placeholder.
+ */
+import http::http;
+
+int main(void)
+{
+    CRequest *req = "https://api.example.com/users"->post();
+    req->header("Accept", "application/json");
+    req->timeout(3000);
+    CResponse *res = req->send();
+    int status = res->status();
+    (void)status;
+    res->free();
+    req->free();
+    return 0;
+}

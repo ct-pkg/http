@@ -1,0 +1,23 @@
+/*
+ * docs/snippets/redirect.ct - the fixed 10-redirect ceiling and the downgrade
+ * refusal are visible through error().
+ */
+import http::http;
+
+#include <stdio.h>
+
+int main(void)
+{
+    CRequest *req = "https://api.example.com/v1/items"->post();
+    req->timeout(10000);
+    req->follow_redirects(1);
+    CResponse *res = req->send();
+    if (res->error() == 47) {
+        printf("too many redirects (limit 10)\n");
+    } else if (res->error() == -1009) {
+        printf("refused https -> http downgrade\n");
+    }
+    res->free();
+    req->free();
+    return 0;
+}

@@ -1,0 +1,36 @@
+/*
+ * docs/snippets/stream.ct - bytes arrive through the callback, not body().
+ */
+import http::http;
+
+#include <stdio.h>
+
+struct Sink {
+    int chunks;
+    int bytes;
+};
+
+int on_chunk(char *data, int len, void *ud)
+{
+    struct Sink *s = (struct Sink *)ud;
+    (void)data;
+    if (len > 0) {
+        s->chunks += 1;
+        s->bytes += len;
+    }
+    return 0;
+}
+
+int main(void)
+{
+    struct Sink sink = { 0, 0 };
+    CRequest *req = "https://api.example.com/report"->post();
+    CResponse *res = req->max_body_bytes(1048576)->send_stream(on_chunk, &sink);
+
+    printf("status=%d chunks=%d bytes=%d body_null=%d\n",
+           res->status(), sink.chunks, sink.bytes, res->body() == NULL);
+
+    res->free();
+    req->free();
+    return 0;
+}
