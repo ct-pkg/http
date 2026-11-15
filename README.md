@@ -3,8 +3,8 @@
 `libcurl` easy handle 的 HTTP 客户端包。对外是链式接口：字符串起手，请求对象承载配置，
 响应对象只读。
 
-- applies-to: 0.2.0
-- 版本：0.2.0
+- applies-to: 0.2.1
+- 版本：0.2.1
 - 许可：MIT（`.ct` / shim / 测试）+ curl 原许可（链接的系统 libcurl）
 - 平台：macOS 与 Linux 的系统 libcurl
 - 规划：[0.1.0 roadmap](docs/planning/ct-http-0.1.0-roadmap.md)、
@@ -146,7 +146,7 @@ int main(void)
 
 ## 版本
 
-`0.2.0`。落点：`ct.pkg#version` 与本文「版本」行，同一提交内必须一致。
+`0.2.1`。落点：`ct.pkg#version` 与本文「版本」行，同一提交内必须一致。
 phase 收口与发布时的四项对账由 `bash tools/check.sh g4`（`g4-version`）执行。
 
 ## 门禁

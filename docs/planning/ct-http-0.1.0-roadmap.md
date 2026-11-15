@@ -1,6 +1,6 @@
 # ct-http 0.1.0 roadmap
 
-- applies-to: 0.2.0
+- applies-to: 0.2.1
 - 日期：2026-11-15
 - 版本：0.1.0
 - 状态：规划稿。phase 1 起按本文件施工；本文件不修改 `docs/requirements.md` 与 `docs/design.md`。

@@ -1,6 +1,6 @@
 # 09 三种超时
 
-- applies-to: 0.2.0
+- applies-to: 0.2.1
 
 `timeout_kind()` 是纯查询，不额外分配；成功路径恒为 `0`：
 

@@ -3,6 +3,15 @@
 本项目从 0.1.0 起记录。版本号规则见 `AGENTS.md` 6.7：MINOR 与 phase 对应、PATCH 与 fix 对应；
 0.1.0 号段按 `deviation: V-001` 冻结；自 0.2.0 起解除冻结，偏移 `d = 9` 永久保留。
 
+## [0.2.1] - 2026-11-16
+
+清单与分发的 patch 重发（无接口改动）：
+
+- `ct.pkg` 的 `version` 由 `0.2.0` 升至 `0.2.1`；`publisher = ct` 与 `ns-root = .` 随本次清单发布。
+- 起因：`v0.2.0` tag 内的 `ct.pkg` 缺 `publisher` 与 `ns-root`；且全局 store 已存在同版本号、
+  摘要不同的内容（`already exists with a different digest`），同版本无法重发，故改出 patch 版本。
+- `applies-to` 与 README「版本」行同步为 `0.2.1`；许可与身份字段取值未改。
+
 ## [0.2.0] - 2026-11-15
 
 PH-11 发布相（无新增功能面）：

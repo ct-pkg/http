@@ -15,7 +15,7 @@
 name = http
 publisher = ct
 ns-root = .
-version = 0.2.0
+version = 0.2.1
 licence = MIT
 ldflags = -lcurl
 requires = ct >= 0.53.1

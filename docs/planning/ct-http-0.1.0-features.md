@@ -1,6 +1,6 @@
 # ct-http 0.1.0 feature 划分
 
-- applies-to: 0.2.0
+- applies-to: 0.2.1
 - 日期：2026-11-15
 - 版本：0.1.0
 - 对应 roadmap：[ct-http-0.1.0-roadmap.md](ct-http-0.1.0-roadmap.md)

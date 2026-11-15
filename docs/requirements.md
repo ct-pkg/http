@@ -1,6 +1,6 @@
 # http 需求说明（需求层，未立项）
 
-- applies-to: 0.2.0
+- applies-to: 0.2.1
 - 日期：2026-11-13
 - 状态：需求梳理稿；未立项，不进入设计、实现、排期与评审。
 - 仓库：`ct-pkg/http`（本地 `/Users/samxx/trae-ws/ct-http`），当前只有骨架与设计假设，没有实现。
@@ -38,7 +38,7 @@
 - **问题**：包必须能被 `ct get` / `ct install` 识别，声明编译器下限与链接选项，且不把 libcurl 头带进 CT 单元。
 - **验收判据**：
   - `bash tools/check.sh g0` 退出 0（2026-11-13 实测：`ok g0 ... version 0.1.0`）。
-  - `ct.pkg` 含 `name=http`、`version=0.2.0`、`licence=MIT`、`ldflags=-lcurl`、`requires=ct >= 0.53.1`；删掉任一键后 `ct get` 非零退出并给出缺键文案。
+  - `ct.pkg` 含 `name=http`、`version=0.2.1`、`licence=MIT`、`ldflags=-lcurl`、`requires=ct >= 0.53.1`；删掉任一键后 `ct get` 非零退出并给出缺键文案。
   - 构建产物 `otool -L`（macOS）/`ldd`（Linux）只指向系统 libcurl，没有仓库内 curl 副本。
 - **非目标**：不自带/vendored curl；不提交索引行（只出提案）；不做预发布/构建元数据。
 - **CT 依赖/阻塞**：`.m.ct` + `.shim.h/.c` + `ldflags`/`requires`（`ct-lang/docs/package-guide.md:57-76`、`docs/bindings-and-patterns.md:80-180`）——已支持。
