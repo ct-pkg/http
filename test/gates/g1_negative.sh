@@ -71,4 +71,32 @@ done
 [ "$found" -eq 1 ] || fail "no docs/phases/PH-*/card.md"
 [ "$total" -gt 0 ] || fail "no tampered card was exercised"
 
-printf 'ok g1-negative (%d tampered cards rejected)\n' "$total"
+# 4. errata: an entry whose frozen quote is no longer verbatim must be rejected.
+errata="$repo/docs/errata.md"
+[ -f "$errata" ] || fail "missing docs/errata.md"
+sed 's/^- 原文：`[^`]*`$/- 原文：`this text never appeared in the frozen card`/' \
+    "$errata" >"$tmp/errata-quote.md"
+grep -q 'this text never appeared' "$tmp/errata-quote.md" \
+    || fail "could not build the errata-quote tamper case"
+ERRATA_FILE="$tmp/errata-quote.md" CARD_FILE="$repo/docs/phases/PH-9/card.md" \
+    bash "$repo/tools/check.sh" g1 >"$tmp/errata-quote.out" 2>&1
+rc=$?
+[ "$rc" -eq 1 ] || { cat "$tmp/errata-quote.out" >&2; fail "errata-quote: expected rc=1, got $rc"; }
+grep -q '原文 not found verbatim' "$tmp/errata-quote.out" \
+    || { cat "$tmp/errata-quote.out" >&2; fail "errata-quote: rejected without the verbatim diagnostic"; }
+printf '  rejected errata/quote: %s\n' "$(head -n 1 "$tmp/errata-quote.out")"
+total=$((total + 1))
+
+# 5. errata: a missing required field must be rejected.
+grep -v '^- 授权：' "$errata" >"$tmp/errata-field.md"
+grep -q '^- 授权：' "$tmp/errata-field.md" && fail "could not build the errata-field tamper case"
+ERRATA_FILE="$tmp/errata-field.md" CARD_FILE="$repo/docs/phases/PH-9/card.md" \
+    bash "$repo/tools/check.sh" g1 >"$tmp/errata-field.out" 2>&1
+rc=$?
+[ "$rc" -eq 1 ] || { cat "$tmp/errata-field.out" >&2; fail "errata-field: expected rc=1, got $rc"; }
+grep -q 'missing field 授权' "$tmp/errata-field.out" \
+    || { cat "$tmp/errata-field.out" >&2; fail "errata-field: rejected without the missing-field diagnostic"; }
+printf '  rejected errata/field: %s\n' "$(head -n 1 "$tmp/errata-field.out")"
+total=$((total + 1))
+
+printf 'ok g1-negative (%d tampered cases rejected)\n' "$total"

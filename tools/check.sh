@@ -142,6 +142,38 @@ check_card() {
         || fail "$card: tasks-sha256 mismatch (card=$want_t actual=$got_t); task list is frozen"
 }
 
+# check_errata <file>
+# A frozen anchor is corrected by appending to docs/errata.md, never by editing
+# the frozen text. Every entry must name a real file, keep the original wording
+# verbatim, and carry the seven required fields (including the authorization).
+check_errata() {
+    errata="$1"
+    [ -f "$errata" ] || fail "missing errata file: $errata"
+
+    n="$(grep -cE '^## ERR-[0-9]{3} ' "$errata" || true)"
+    [ "${n:-0}" -ge 1 ] || fail "errata has no '## ERR-<n>' entry"
+
+    grep -E '^## ERR-[0-9]{3} ' "$errata" | sed 's/^## \(ERR-[0-9][0-9][0-9]\).*/\1/' |
+    while read -r id; do
+        block="$(awk -v id="$id" '
+            index($0, "## " id " ") == 1 { inb = 1; next }
+            inb && /^## / { exit }
+            inb { print }
+        ' "$errata")"
+        for field in 日期 对象 原文 修正 原因 行为证据 授权; do
+            printf '%s\n' "$block" | grep -q "^- ${field}：" \
+                || { printf 'errata %s: missing field %s\n' "$id" "$field" >&2; exit 1; }
+        done
+        obj="$(printf '%s\n' "$block" | sed -n 's/^- 对象：`\([^`]*\)`.*/\1/p' | head -n 1)"
+        [ -n "$obj" ] || { printf 'errata %s: 对象 must hold a backticked path\n' "$id" >&2; exit 1; }
+        [ -f "$pkg/$obj" ] || { printf 'errata %s: 对象 file not found: %s\n' "$id" "$obj" >&2; exit 1; }
+        quote="$(printf '%s\n' "$block" | sed -n 's/^- 原文：`\([^`]*\)`.*/\1/p' | head -n 1)"
+        [ -n "$quote" ] || { printf 'errata %s: 原文 must hold the frozen text in backticks\n' "$id" >&2; exit 1; }
+        grep -qF -- "$quote" "$pkg/$obj" \
+            || { printf 'errata %s: 原文 not found verbatim in %s\n' "$id" "$obj" >&2; exit 1; }
+    done || fail "errata entries invalid"
+}
+
 gate="${1:-}"
 case "$gate" in
 g0)
@@ -187,7 +219,8 @@ g1)
         done
         [ "$found" -eq 1 ] || fail "no docs/phases/PH-*/card.md"
     fi
-    printf 'ok g1 (card items, task columns, frozen criteria/tasks digests)\n'
+    check_errata "${ERRATA_FILE:-$pkg/docs/errata.md}"
+    printf 'ok g1 (card items, task columns, frozen criteria/tasks digests, errata)\n'
     ;;
 g3)
     [ -x "$CT_BIN" ] || fail "ct not found: $CT_BIN"
