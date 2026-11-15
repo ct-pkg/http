@@ -5,42 +5,37 @@
 - 说明：本页只记本包自己的待办。每条写清「为什么需要 / 要做什么 / 前置条件 / 验收方式 / 当前定性」；
   不引用外部阶段号或版本号。
 
-## 0. 本轮重判的事实依据
+## 0. 本轮烟雾测试（2026-11-15，新工具链）
 
-包管理器侧已具备：按发布方/包名/版本落 store、`publisher` 与 `ns-root` 必填并参与 include 根展开、
-lock 记录发布方与单元根、构建默认读 lock 并自动补 include 根、索引含
-`name`/`version`/`publisher`/`url`/`tag`/`sha`。
+本机工具链：`/Users/samxx/.local/bin/ct`。`~/.local/bin` 不在 PATH，以下全部用显式路径调用。
+测试在 `/tmp` 的仓库副本里做，工作区 `ct.pkg` 未参与、未提交。
 
-但**本机现有工具链没有表现出这些行为**，实测如下（同一工作目录，用本仓自己的 `ct.pkg`）：
+| # | 实验 | 原文输出 | 结论 |
+| --- | --- | --- | --- |
+| 1 | `ct get <副本>` 后的布局 | `vendored 1 package(s)`；`vendor/http` 存在，同时 `~/.ct/pkg/ct/http/0.2.0` 已落盘 | 兼容副本仍生成；store 按发布方/包名/版本分层 |
+| 2 | `cat ct.lock` | `# ct-lock 2` / `ct/http 0.2.0 dir /tmp/sm1 - . sha256:3d68…` | 发布方 `ct`、单元根 `.` 都在 lock 里 |
+| 3 | 删掉 `publisher`/`ns-root` 后再 `ct get` | `vendored 1 package(s)`，rc=0；lock 退回单行 `http 0.2.0 dir …` | `ct get` 不强制这两项；强制点在 `ct pkg check` |
+| 4 | `ct pkg check <dir>` | 有字段：`ok: 4 criteria`；缺字段：`'/tmp/sm2/ct.pkg' is missing 'publisher'`、`… is missing 'ns-root'` | 子命令存在，按目录校验四项 |
+| 5 | 不写 `-I` 直接 `ct build` | `'cc' -std=c99 -I '/tmp/sm1/http' …`；产物运行输出 `200 {"users":3}` | import 可解析，include 根自动补齐 |
+
+补充证据（消费端 `ct install`）：
 
 ```console
-$ ct get <本仓目录>
-vendored 1 package(s)
-
-$ cat ct.lock
-http 0.2.0 dir <本仓目录> sha256:2d6be5b0…
-
-$ ls
-ct.lock  vendor        # 仍落 vendor/，不是 store
-
-$ ct install --help
-usage: ct install [--force]
-  verify vendor/ against ct.lock and print the suggested build command
+$ ct install
+ct build -I /Users/samxx/.ct/pkg/ct/http/0.2.0 --ldflags '-lcurl' quickstart.ct -o build
+# lock-format: v2
 ```
 
-把 `ct.pkg` 里的 `publisher` / `ns-root` 删掉后再 `ct get`，同样成功、同样落 `vendor/`，
-说明这两行在本机工具链里既不校验也不生效。
-
-结论：**能力语义已经存在，但本机工具链尚未对齐**。凡验收依赖“落 store / lock 含发布方 /
-install 打印 store 根”的条目，写法可以先定，**本机暂时跑不出绿**；这一点先记在案，不假装通过。
+结论：**store、lock v2、发布方与单元根、构建自动补 include 根都已具备**；
+`publisher`/`ns-root` 的强制点在包校验（`pkg check`），不在 `get`。
 
 ## 1. 总表
 
 | # | 任务 | 本轮定性 | 依据 | 状态 |
 | --- | --- | --- | --- | --- |
-| 1 | 包身份字段 | **可开工** | 字段语义已由包管理器承载；本机工具链忽略这两行，只影响验收 | 未落地 |
-| 2 | 安装测试改断 store 路径 | **暂不可开工** | 本机 `ct get` 仍落 `vendor/`，写成 store 断言会假红 | 未落地 |
-| 3 | 去手算 include 路径 | **暂不可开工** | 同 2；且本机 lock 无发布方/单元根 | 未落地 |
+| 1 | 包身份字段 | **行为已验收** | store 落盘、lock v2 含发布方与单元根、`pkg check` 通过；两行仍未提交 | 未提交（按要求） |
+| 2 | 安装测试改断 store 路径 | **可开工** | `ct install` 已打印 store 根，断言可改 | 未实施 |
+| 3 | 去手算 include 路径 | **可开工** | 无 `-I` 构建成功并输出 200 | 未实施 |
 | 4 | 阻塞清单与发布说明收口 | **可开工** | 纯文档，不依赖工具链 | 进行中：清单 3/5 |
 
 ## 2. 逐条
@@ -55,8 +50,9 @@ install 打印 store 根”的条目，写法可以先定，**本机暂时跑不
   - `grep -c '^publisher = ct$' ct.pkg` 输出 `1`；`grep -c '^ns-root = \.$' ct.pkg` 输出 `1`；
   - `ct get <本地目录 spec>` 退出 0，且包落在 store 目录；
   - `ct install` 打印的 `-I` 指向 store。
-- **当前定性**：可开工。**验收在本机暂不可执行**（见 §0）；建议与第 2、3 条同相收口，
-  避免出现“字段已加、无人读取”的中间态。
+- **当前定性**：行为已验收。`ct pkg check .` 输出 `ok: 4 criteria`；`ct install` 打印
+  `-I /Users/samxx/.ct/pkg/ct/http/0.2.0`；lock 为 `# ct-lock 2` 且含发布方与单元根。
+  两条 `grep` 判据要等这两行提交后才算数（本轮按要求不提交）。
 
 ### 2) 安装测试改断 store 路径
 
@@ -68,8 +64,8 @@ install 打印 store 根”的条目，写法可以先定，**本机暂时跑不
   - `grep -c 'vendor/' test/gates/p10_install.sh` 输出 `0`；
   - `bash test/gates/p10_install.sh` 退出 0，输出 `install ok` 与 `200`；
   - `test -d <store 目录>` 退出 0。
-- **当前定性**：**暂不可开工**。阻塞不是“包管理器没有能力”，而是“本机工具链未对齐”，
-  现在改断言只会得到假红。需要先有一份能表现 store 行为的本地工具链。
+- **当前定性**：**可开工**，阻塞已解除。`ct install` 现在打印
+  `-I /Users/samxx/.ct/pkg/ct/http/0.2.0`，把断言改成 store 路径能真绿；脚本尚未改。
 - **现状**：脚本仍有 5 处 `vendor/` 断言（第 13、77、78、79、85 行）。
 
 ### 3) 去手算 include 路径
@@ -82,7 +78,8 @@ install 打印 store 根”的条目，写法可以先定，**本机暂时跑不
   - `grep -rn -- '-I vendor/' test tools` 零命中（退出 1）；
   - 全仓零命中是目标；历史卡片与评审记录里保留的旧契约原文是否一并改写见 §5；
   - `bash tools/check.sh g0 … g9` 结果不受影响。
-- **当前定性**：**暂不可开工**，同 2。`test/` + `tools/` 现有 5 处，全在 `test/gates/p10_install.sh`。
+- **当前定性**：**可开工**。不写 `-I` 的 `ct build` 已能解析 `import`，cc 行自动带
+  `-I '/tmp/sm1/http'`，产物运行输出 `200 {"users":3}`；脚本尚未改。
 
 ### 4) 阻塞清单与发布说明收口
 
@@ -102,36 +99,33 @@ install 打印 store 根”的条目，写法可以先定，**本机暂时跑不
 - **现状**：`git status --porcelain` 输出 ` M ct.pkg`；diff 只有两行新增：
   `publisher = ct`、`ns-root = .`。`version`、`requires`、`ldflags` 均未改。
 - **本轮处置**：不提交、不丢弃，原样留在工作区。
-- **建议**：第 1 条已可开工，但单独提交会在本机得到“字段无效”的假象；建议与第 2、3 条
-  同一相落地，一次验收。若 owner 要求先落字段，也可单独提交，只需在提交说明里写明验收待工具链。
+- **建议**：第 1 条行为已验证；建议与第 2、3 条同一相落地、一次验收。若先单独落字段，
+  `ct pkg check .` 与 lock 的 `# ct-lock 2` 也能当场验证，不会再出现“字段无效”的假象。
 - **风险**：长期挂 diff 容易被误提交；若 owner 同意，可先 `git stash` 存档。
 
 ## 4. 需要 owner 拍板
 
-1. **本机工具链对齐**：现有工具链仍落 `vendor/`、lock 无发布方（§0）。是等 owner 提供
-   能表现新行为的构建，还是允许本仓自行构建一份用于验收？
-2. **HTTP-4 / HTTP-5 正文**：本仓没有原文，由谁、何时补齐？
-3. **第 3 条的验收口径**：全仓 `-I vendor/` 零命中，还是只要求 `test/` + `tools/` 零命中？
+1. **HTTP-4 / HTTP-5 正文**：本仓没有原文，由谁、何时补齐？
+2. **第 3 条的验收口径**：全仓 `-I vendor/` 零命中，还是只要求 `test/` + `tools/` 零命中？
    历史卡片与评审记录里的旧契约原文是否保留。
-4. **`ct.pkg` 两行的处置**：继续挂工作区，还是先 stash 存档。
-5. **对外发布说明的落点**：新建 `docs/release-notes.md`，还是并入 README 的「版本」段。
+3. **`ct.pkg` 两行的处置**：继续挂工作区，还是先 stash 存档。
+4. **对外发布说明的落点**：新建 `docs/release-notes.md`，还是并入 README 的「版本」段。
 
 ## 5. 本仓的分期判断（重判后）
 
 分期由本仓自己定，依据只有两条：**能不能现在验收**、**会不会返工**。
 
-- **第 1–3 条仍合并成一个相**：判断成立，但理由变了。不是“前置未满足”，而是三条共用
-  同一次验收、同一批文件（`ct.pkg` + `p10_install.sh`）；拆开会出现“字段已加但无人读”的中间态，
-  且三次触同一批文件必返工。
-- **该相的入口条件**：本机能观察到 store 落盘、lock 含发布方与单元根、`ct install` 打印 store 根。
-  当前**不满足**（§0），所以相可以先把卡写好，但判据在工具链对齐前只能记 `UNVERIFIED`。
+- **第 1–3 条仍合并成一个相**：三条共用同一次验收、同一批文件（`ct.pkg` + `p10_install.sh`），
+  拆开会出现“字段已加但无人读”的中间态，且三次触同一批文件必返工。
+- **该相的入口条件已满足**：烟雾测试里 store 落盘、lock v2 含发布方与单元根、
+  `ct install` 打印 store 根三项都真跑到了（§0），可以开卡并按真判据验收。
 - **拆步顺序**：1 → 2 → 3。先加字段，再改安装断言，最后清手算路径；2、3 依赖新的 include 根稳定。
 - **完成度**：4 条里 0 条落地；第 4 条清单 3/5，发布说明未建。
-- **推不推**：第 4 条**现在就推**；第 1 条**可开工但与 2、3 同相**，不单独占相；
-  第 2、3 条等工具链对齐。相位号与版本号届时按 `AGENTS.md` 6.7 现算，不预先占号。
+- **推不推**：第 4 条**现在就推**；第 1–3 条**已解除阻塞、可以开相**，但不单独占号，
+  相位号与版本号届时按 `AGENTS.md` 6.7 现算。
 
 ## 6. 与当前相位的关系
 
-这四条**不并入 PH-12**（`method()` + `content_type()`）：验收条件未就绪，提前做会重写一遍
-include 根与 lock 契约。PH-12 的登记见 [roadmap](ct-http-0.1.0-roadmap.md) §5；
+这四条**不并入 PH-12**（`method()` + `content_type()`）：那是产品增量，这四条是安装契约对齐，
+两者验收路径不同。PH-12 的登记见 [roadmap](ct-http-0.1.0-roadmap.md) §5；
 本页只做登记，不改 `ct.pkg`、不打 tag、不 bump。
