@@ -146,6 +146,23 @@ podman run --rm -v "$PWD":/w -w /w \
 - `git tag` 为空；`g8-tag` 打印 `v0.1.0 not created (deviation V-002)`。
 - 该偏离在 `AGENTS.md` §0.3 有日期、条款、理由、收敛动作与用户指令出处；不是「跳过」。
 
+### 4.6 工作区遗留改动的归位（2026-11-15）
+
+- **未采纳**：`ct.pkg` 的 `requires = ct >= 0.44.1`（含注释改写）、`docs/design.md`、
+  `docs/requirements.md`、`docs/phases/H1.md` 里的同一处 `requires` 数字。
+  - 理由一：「下限取最新发布版」这个前提已经过期。撰写时（2026-11-13）最新发布版是 v0.44.1；
+    2026-11-15 `ct-lang` 最新 tag 已是 v0.49.0（`git tag --sort=-v:refname | head -1`）。
+    照原样提交会把一句过期理由写进包清单。
+  - 理由二：`docs/requirements.md` 把 `requires=ct >= 0.34.0` 列为验收判据，
+    改数字属于改判据，不属于「归位」。
+  - 处置：四处改动**保留在工作区、未提交**，也没有擅自 `git checkout --` 丢弃。
+    要抬下限，应按当前实测环境另出一份判据变更；要丢弃，需明确授权。
+- **已归档**：`docs/review/` 下三篇未跟踪草稿收进 `docs/reviews/spec-review/`；
+  两篇超过 300 行的按小节边界拆为 `part2` / `part3`，正文未改，只补来源说明；
+  源草稿按「不要删」保留在原处。
+- **tag 状态**：§4.5 记的是收口当时的事实（未打 tag）。2026-11-15 用户已授权打 `v0.1.0`
+  并推分支；推送后的状态更新与 Linux 清单一起留在工作区，未提交。
+
 ## 5. tag 提案（不执行）
 
 ```console
