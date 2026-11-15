@@ -13,11 +13,12 @@
 ## 红：基线 shim（修复前）
 
 ```console
-$ git archive d0160db^ | tar -x -C /tmp/http1-base
-$ cc -std=c99 -Wall -Wextra -Werror -I /tmp/http1-base/src/http -I test/fixtures \
+$ base=/tmp/http1-base
+$ git archive d0160db^ | tar -x -C "$base"
+$ cc -std=c99 -Wall -Wextra -Werror -I "$base/src/http" -I test/fixtures \
       test/fixtures/p9-cross-host.c test/fixtures/p9-server.c \
-      /tmp/http1-base/src/http/http.shim.c -lcurl -o /tmp/http1-base/p9-cross-host
-$ /tmp/http1-base/p9-cross-host
+      "$base/src/http/http.shim.c" -lcurl -o "$base/p9-cross-host"
+$ "$base/p9-cross-host"
 cross auth 0 cookie 0 proxy 0 status 200
 cross referer 0
 port auth 0 cookie 0 proxy 0 status 200

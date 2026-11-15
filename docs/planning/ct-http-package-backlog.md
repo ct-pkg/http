@@ -22,7 +22,7 @@
 
 ```console
 $ ct install
-ct build -I /Users/samxx/.ct/pkg/ct/http/0.2.0 --ldflags '-lcurl' quickstart.ct -o build
+ct build -I "$CT_HOME/pkg/ct/http/0.2.0" --ldflags '-lcurl' quickstart.ct -o build
 # lock-format: v2
 ```
 
@@ -51,7 +51,7 @@ ct build -I /Users/samxx/.ct/pkg/ct/http/0.2.0 --ldflags '-lcurl' quickstart.ct 
   - `ct get <本地目录 spec>` 退出 0，且包落在 store 目录；
   - `ct install` 打印的 `-I` 指向 store。
 - **当前定性**：行为已验收。`ct pkg check .` 输出 `ok: 4 criteria`；`ct install` 打印
-  `-I /Users/samxx/.ct/pkg/ct/http/0.2.0`；lock 为 `# ct-lock 2` 且含发布方与单元根。
+  `-I $CT_HOME/pkg/ct/http/0.2.0`；lock 为 `# ct-lock 2` 且含发布方与单元根。
   两条 `grep` 判据要等这两行提交后才算数（本轮按要求不提交）。
 
 ### 2) 安装测试改断 store 路径
@@ -65,7 +65,7 @@ ct build -I /Users/samxx/.ct/pkg/ct/http/0.2.0 --ldflags '-lcurl' quickstart.ct 
   - `bash test/gates/p10_install.sh` 退出 0，输出 `install ok` 与 `200`；
   - `test -d <store 目录>` 退出 0。
 - **当前定性**：**可开工**，阻塞已解除。`ct install` 现在打印
-  `-I /Users/samxx/.ct/pkg/ct/http/0.2.0`，把断言改成 store 路径能真绿；脚本尚未改。
+  `-I $CT_HOME/pkg/ct/http/0.2.0`，把断言改成 store 路径能真绿；脚本尚未改。
 - **现状**：脚本仍有 5 处 `vendor/` 断言（第 13、77、78、79、85 行）。
 
 ### 3) 去手算 include 路径
