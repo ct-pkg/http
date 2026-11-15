@@ -70,7 +70,7 @@
   - 夹具回显请求头；`header("X-A","1")` + `header("X-A","2")` 后服务端按调用序收到两条 `X-A`。
   - `delete` 后 LSAN 0 泄漏，shim 计数显示 `curl_slist_free_all` 恰好 1 次。
   - 负例：超长 header（超过文档上限）返回明确错误，不得截断成另一条合法头。
-- **非目标**：不提供响应头读取（读取面只列状态码/body/错误/字节数）；不做默认头或自动 Content-Type。
+- **非目标**：不提供通用响应头读取（`header()`/`header_all()`）；响应侧只提供 R-11 的 `content_type()` 窄接口（[裁定](decisions/S-01-S-02-ruling.md)）；不做默认头或自动 Content-Type。
 - **CT 依赖/阻塞**：`curl_slist_*` 经 shim 调用（`ct-lang/docs/bindings-and-patterns.md:80-180`）——已支持。
 - **待确认**：是否在 `header()` 拒绝含 CR/LF 的名字或值（Q-10）。
 
@@ -136,7 +136,7 @@
   - 二进制 body（含 NUL）用 `body_len` 比较，不用 `strlen`。
   - 3xx 在默认不跟随下 `is_ok()==0`（Q-11 定稿后写死）。
   - 负例：把 500 当成功会让断言变红。
-- **非目标**：不提供 GET/PUT/DELETE 或自定义 method；不做并发请求。
+- **非目标**：不提供 `get()`/`put()`/`delete()` 专用入口；非 POST 方法经 `method()` 新增入口发出（同裁定）；不做并发请求。
 - **CT 依赖/阻塞**：write callback + `getinfo` 经 shim——已支持；耗时字段是否暴露待确认（Q-08）。
 
 ### R-11 `HttpResponse` 读取面
@@ -146,7 +146,7 @@
   - 四种状态各一条夹具：ok、404、传输错误、取消；断言 `status_code`、`body`、`body_len`、`error_code`、`error_msg`、`total_bytes`、`is_ok()`、`is_cancelled()`、`error_detail()`。
   - `grep` 公开头无 setter；`nm` 生成对象无写入口符号。
   - 负例：ok 状态却 `is_ok()==0`、或 404 却 `error_code!=0` 必须变红。
-- **非目标**：不读响应头、不提供 cookies、不做 body 增量读取（`post_stream` 另条）。
+- **非目标**：不读通用响应头、不提供 cookies、不做 body 增量读取（`post_stream` 另条）；`content_type()` 是唯一新增读取项（同裁定）。
 - **CT 依赖/阻塞**：已支持；释放责任待确认（Q-03）。
 
 ### R-12 `post_stream(cb, ud)`

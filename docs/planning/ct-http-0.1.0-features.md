@@ -61,6 +61,9 @@
 
 ### S-01 响应头读取
 
+- **裁定（2026-11-15）**：收窄为 `content_type()` 窄接口；不提供 `header()`/`header_all()`，
+  下文的「包含的影响面」不采纳。见 [S-01/S-02 裁定](../decisions/S-01-S-02-ruling.md)。
+
 - **提案要求什么**：`HttpResponse` 增加 `header(name)` / `header_all()`，可读响应头。
 - **与 requirements 哪条冲突**：R-04 非目标「不提供响应头读取（读取面只列状态码/body/错误/字节数）」；R-11 非目标「不读响应头」，且 R-11 的公开面判据只列 6 项。
 - **包含的影响面**：F-16 扩读取面；新增头存储、大小写归一、重复项、重定向中间响应、头上限（一行 fixture 不够）；phase 4 与 phase 10 扩项；下游 `ct-llm-sse` 的 content-type 判定受益；R-04/R-11 必须改写。
@@ -68,6 +71,9 @@
 - **影响 phase/feature**：phase 4、phase 10；F-16（＋新增候选 feature）。**不进入 phase 1。**
 
 ### S-02 `method()`
+
+- **裁定（2026-11-15）**：按「新增入口」执行；`post()` 不动，`method()` 后调用覆盖，
+  空串按本地参数错误（不回 POST）。见 [S-01/S-02 裁定](../decisions/S-01-S-02-ruling.md)。
 
 - **提案要求什么**：链式入口 `.method("GET"|"POST"|…)`，可自定义方法。
 - **与 requirements 哪条冲突**：R-10 非目标「不提供 GET/PUT/DELETE 或自定义 method」，现行只保留 `post()`。

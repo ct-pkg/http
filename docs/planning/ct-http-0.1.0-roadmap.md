@@ -215,3 +215,12 @@
 - Windows、静态链接 curl、vendored curl。
 
 以上任一若要进入 0.1.0，先走需求层立项，不在本 roadmap 内改判据。
+
+## 5. 下一相（已裁定，待开卡）
+
+- 内容：**S-02 `method()`（新增入口）+ S-01 收窄为 `content_type()`**。
+  裁定见 [docs/decisions/S-01-S-02-ruling.md](../decisions/S-01-S-02-ruling.md)。
+- 相位号：**待定**。本文件不占号；开卡时按 `docs/phases/PH-<n>/` 与 `version-minor` 规则登记。
+- 版本号：**待定**。开卡时按 `AGENTS.md` 6.7 V-1 与 `deviation: V-001` 的 `d = 9` 换算；
+  本裁定不 bump、不打 tag。
+- 不做：不替换 `post()`；不提供 `header()`/`header_all()`；不与 S-04/S-05 捆绑。
