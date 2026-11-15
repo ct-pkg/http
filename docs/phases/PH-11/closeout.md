@@ -95,6 +95,9 @@ ok g9 (spec 1.10.0, sha256 matches master)
   因此单看 `ok g8` 不足以证明 tag 存在；本轮的 tag 结论以 §3 的三条直接断言为准，`v0.2.0`
   建立后 `g8-tag` 走严格分支校验（annotated + 指向 HEAD）。
 - `v0.1.0` 指向 `b4b7b43`，与 `0.2.0` 的收口提交无冲突；已发布 tag 不回改。
+- 2026-11-15 追加纯文档提交（S-01/S-02 需求层裁定）后，HEAD 越过 `v0.2.0`，
+  `g4-version` 报 `HEAD is not tagged v0.2.0`，`g8-tag` 报 `v0.2.0 points at a00caa8, not HEAD`。
+  不移动 tag、不改门禁；收敛条件为下一相收口时打新 tag。
 
 ### 5.4 工作区遗留
 
