@@ -5,8 +5,16 @@
 #   bash tools/check.sh g0    spec block, instantiation table, session map,
 #                             version landing (AGENTS 6.4 / 11.5)
 #   bash tools/check.sh g1    phase card: ten items, seven task columns,
-#                             frozen exit-criteria / task-list digests
-#   bash tools/check.sh g3    build + run the phase 1 fixtures, zero warnings
+#                             frozen exit-criteria / task-list digests, errata
+#   bash tools/check.sh g2    design acceptance map (R-* -> ACC-*)
+#   bash tools/check.sh g3    build + run every fixture, zero warnings
+#   bash tools/check.sh g4    snippets, block binding, anchors, applies-to,
+#                             300-line limit, README shape, version landing
+#   bash tools/check.sh g5    per-task red evidence + gate negative self-tests
+#   bash tools/check.sh g6    issue ledger, unmet criteria traced, pool
+#   bash tools/check.sh g7    secret scan, dependency consistency, sanitizers
+#   bash tools/check.sh g8    phase freeze, version moves, commit scope, tag
+#   bash tools/check.sh g9    spec pin (version + sha256) against the master
 #
 # Any subcommand that is not implemented exits 2 with an explicit message:
 # a gate that cannot run must not look green.
@@ -177,16 +185,21 @@ check_errata() {
 gate="${1:-}"
 case "$gate" in
 g0)
+    agents="${AGENTS_MD:-$pkg/AGENTS.md}"
+    sm="${SESSION_MAP:-$pkg/docs/session-map.md}"
+    ctpkg="${CT_PKG:-$pkg/ct.pkg}"
+    readme="${README_MD:-$pkg/README.md}"
+
     # 1. generated spec block + docs/spec full copy
     [ -f "$SPEC_BIN" ] || fail "spec tool not found: $SPEC_BIN"
-    bash "$SPEC_BIN" --check "$pkg/AGENTS.md" || fail "sync-agents --check"
+    bash "$SPEC_BIN" --check "$agents" || fail "sync-agents --check"
 
     # 2. docs/session-map.md
-    [ -f "$pkg/docs/session-map.md" ] || fail "missing docs/session-map.md"
+    [ -f "$sm" ] || fail "missing docs/session-map.md"
 
     # 3. the three landing sections, outside the generated block
     for h in '### 0.1 本项目实例化' '### 0.2 话术路由' '### 0.3 偏离项'; do
-        grep -qxF "$h" "$pkg/AGENTS.md" || fail "missing landing section: $h"
+        grep -qxF "$h" "$agents" || fail "missing landing section: $h"
     done
 
     # 4. eight non-empty instantiation rows (header + separator + 8 rows)
@@ -195,13 +208,13 @@ g0)
         /^### 0\.2 / { inb = 0 }
         inb && /^\|/ { n++ }
         END { print n + 0 }
-    ' "$pkg/AGENTS.md")"
+    ' "$agents")"
     [ "$rows" -ge 10 ] || fail "instantiation table has $((rows - 2)) rows, need 8"
 
     # 5. version landing: ct.pkg#version equals the README version line
-    pkg_ver="$(awk -F'=' '/^version[[:space:]]*=/ { gsub(/[[:space:]]/, "", $2); print $2; exit }' "$pkg/ct.pkg")"
+    pkg_ver="$(awk -F'=' '/^version[[:space:]]*=/ { gsub(/[[:space:]]/, "", $2); print $2; exit }' "$ctpkg")"
     [ -n "$pkg_ver" ] || fail "ct.pkg has no version"
-    readme_ver="$(sed -n 's/^- 版本：\([0-9][0-9.]*\).*/\1/p' "$pkg/README.md" | head -n 1)"
+    readme_ver="$(sed -n 's/^- 版本：\([0-9][0-9.]*\).*/\1/p' "$readme" | head -n 1)"
     [ "$readme_ver" = "$pkg_ver" ] \
         || fail "version landing differs: ct.pkg=$pkg_ver README=$readme_ver"
 
@@ -280,11 +293,11 @@ g3)
     printf 'ok g3 (abi, chain, variable landing, negative import, shim lifecycle, release, response ownership, ops, request config, response bytes, take_body, failure codes, error model, predicates, timeouts, streaming, cancellation, lifetime, redirects, credentials, downgrade)\n'
     ;;
 g2 | g4 | g5 | g6 | g7 | g8 | g9)
-    printf '%s: not implemented yet (see docs/phases/PH-1/card.md)\n' "$gate" >&2
-    exit 2
+    [ -f "$here/gates/$gate.sh" ] || fail "gate script not found: tools/gates/$gate.sh"
+    . "$here/gates/$gate.sh"
     ;;
 *)
-    printf 'usage: bash tools/check.sh <g0|g1|g3|...|g9>\n' >&2
+    printf 'usage: bash tools/check.sh <g0|g1|...|g9>\n' >&2
     exit 2
     ;;
 esac

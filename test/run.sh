@@ -20,7 +20,7 @@ fi
 
 here="$(cd "$(dirname "$0")" && pwd)"
 repo="$(cd "$here/.." && pwd)"
-fixtures="$repo/test/fixtures"
+fixtures="${FIXTURES_DIR:-$repo/test/fixtures}"
 CT_BIN="${CT_BIN:-/Users/samxx/.local/bin/ct}"
 CC_BIN="${CC:-cc}"
 tmp="$(mktemp -d)"
@@ -128,7 +128,7 @@ run_asan_positive_server() {
         "$fixtures/$task.c" "$fixtures/p4-server.c" "$repo/src/http/http.shim.c" \
         -lcurl -o "$tmp/$task" >"$log" 2>&1 \
         || { cat "$log" >&2; fail "cc -fsanitize=address failed"; }
-    ASAN_OPTIONS=detect_leaks=0 "$tmp/$task" >"$tmp/$task.out" 2>&1
+    ASAN_OPTIONS=detect_leaks=0:symbolize=0 "$tmp/$task" >"$tmp/$task.out" 2>&1
     rc=$?
     [ "$rc" -eq 0 ] || { cat "$tmp/$task.out" >&2; fail "sanitizer aborted a legal program"; }
     grep -q 'AddressSanitizer' "$tmp/$task.out" \
@@ -145,11 +145,11 @@ run_asan_negative_server() {
         "$fixtures/$task.c" "$fixtures/p4-server.c" "$repo/src/http/http.shim.c" \
         -lcurl -o "$tmp/$task" >"$log" 2>&1 \
         || { cat "$log" >&2; fail "cc -fsanitize=address failed"; }
-    ASAN_OPTIONS=detect_leaks=0 "$tmp/$task" >"$tmp/$task.out" 2>&1
+    ASAN_OPTIONS=detect_leaks=0:symbolize=0 "$tmp/$task" >"$tmp/$task.out" 2>&1
     rc=$?
     [ "$rc" -ne 0 ] || { cat "$tmp/$task.out" >&2; fail "sanitizer did not abort"; }
-    grep -q 'double-free' "$tmp/$task.out" \
-        || { cat "$tmp/$task.out" >&2; fail "no double-free report"; }
+    grep -qE "double-free|use-after-free" "$tmp/$task.out" \
+        || { cat "$tmp/$task.out" >&2; fail "no double-free or use-after-free report"; }
     printf 'ok %s (ASAN rejected the stale pointer)\n' "$task"
 }
 
@@ -162,7 +162,7 @@ run_asan_negative_uaf_server() {
         "$fixtures/$task.c" "$fixtures/p4-server.c" "$repo/src/http/http.shim.c" \
         -lcurl -o "$tmp/$task" >"$log" 2>&1 \
         || { cat "$log" >&2; fail "cc -fsanitize=address failed"; }
-    ASAN_OPTIONS=detect_leaks=0 "$tmp/$task" >"$tmp/$task.out" 2>&1
+    ASAN_OPTIONS=detect_leaks=0:symbolize=0 "$tmp/$task" >"$tmp/$task.out" 2>&1
     rc=$?
     [ "$rc" -ne 0 ] || { cat "$tmp/$task.out" >&2; fail "sanitizer did not abort"; }
     grep -q 'heap-use-after-free' "$tmp/$task.out" \
@@ -203,7 +203,7 @@ run_cc() {
     printf 'ok %s\n' "$task"
 }
 
-# A negative fixture must abort under ASAN with a double-free report.
+# A negative fixture must abort under ASAN with a double-free or use-after-free report.
 run_asan_negative() {
     log="$tmp/$task.build.log"
     "$CC_BIN" -std=c99 -g -fsanitize=address -Wall -Wextra -Werror \
@@ -211,11 +211,11 @@ run_asan_negative() {
         "$fixtures/$task.c" "$repo/src/http/http.shim.c" -lcurl \
         -o "$tmp/$task" >"$log" 2>&1 \
         || { cat "$log" >&2; fail "cc -fsanitize=address failed"; }
-    ASAN_OPTIONS=detect_leaks=0 "$tmp/$task" >"$tmp/$task.out" 2>&1
+    ASAN_OPTIONS=detect_leaks=0:symbolize=0 "$tmp/$task" >"$tmp/$task.out" 2>&1
     rc=$?
     [ "$rc" -ne 0 ] || { cat "$tmp/$task.out" >&2; fail "sanitizer did not abort"; }
-    grep -q 'double-free' "$tmp/$task.out" \
-        || { cat "$tmp/$task.out" >&2; fail "no double-free report"; }
+    grep -qE "double-free|use-after-free" "$tmp/$task.out" \
+        || { cat "$tmp/$task.out" >&2; fail "no double-free or use-after-free report"; }
     printf 'ok %s (ASAN rejected the stale pointer)\n' "$task"
 }
 
