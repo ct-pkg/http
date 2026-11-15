@@ -237,7 +237,14 @@ g3)
     bash "$pkg/test/run.sh" p8-lifetime || fail "p8-lifetime"
     bash "$pkg/test/run.sh" p8-lifetime-bad || fail "p8-lifetime-bad"
     bash "$pkg/test/run.sh" p8-chain || fail "p8-chain"
-    printf 'ok g3 (abi, chain, variable landing, negative import, shim lifecycle, release, response ownership, ops, request config, response bytes, take_body, failure codes, error model, predicates, timeouts, streaming, cancellation, lifetime)\n'
+    bash "$pkg/test/run.sh" p9-same-host || fail "p9-same-host"
+    bash "$pkg/test/run.sh" p9-hops10 || fail "p9-hops10"
+    bash "$pkg/test/run.sh" p9-hops11 || fail "p9-hops11"
+    bash "$pkg/test/run.sh" p9-cross-host || fail "p9-cross-host"
+    bash "$pkg/test/run.sh" p9-loop || fail "p9-loop"
+    bash "$pkg/test/run.sh" p9-downgrade || fail "p9-downgrade"
+    bash "$pkg/test/run.sh" p9-default || fail "p9-default"
+    printf 'ok g3 (abi, chain, variable landing, negative import, shim lifecycle, release, response ownership, ops, request config, response bytes, take_body, failure codes, error model, predicates, timeouts, streaming, cancellation, lifetime, redirects, credentials, downgrade)\n'
     ;;
 g2 | g4 | g5 | g6 | g7 | g8 | g9)
     printf '%s: not implemented yet (see docs/phases/PH-1/card.md)\n' "$gate" >&2

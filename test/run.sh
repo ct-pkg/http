@@ -79,6 +79,47 @@ run_cc_server() {
     printf 'ok %s\n' "$task"
 }
 
+# PH-9 fixtures carry their own redirect server (p9-server.c).
+run_cc_p9_server() {
+    log="$tmp/$task.build.log"
+    "$CC_BIN" -std=c99 -Wall -Wextra -Werror -I "$repo/src/http" -I "$fixtures" \
+        "$fixtures/$task.c" "$fixtures/p9-server.c" "$repo/src/http/http.shim.c" \
+        -lcurl -o "$tmp/$task" >"$log" 2>&1 \
+        || { cat "$log" >&2; fail "cc failed"; }
+    "$tmp/$task" >"$tmp/$task.out" 2>&1 \
+        || { cat "$tmp/$task.out" >&2; fail "fixture failed"; }
+    diff -u "$fixtures/$task.expected.out" "$tmp/$task.out" \
+        || fail "output mismatch"
+    printf 'ok %s\n' "$task"
+}
+
+# p9-downgrade needs a real TLS origin: python3 (ssl) and openssl. If either is
+# missing the gate must not look green, so this exits 2 instead of skipping.
+run_p9_downgrade() {
+    python3 -c 'import ssl' >/dev/null 2>&1 \
+        || { printf 'SKIP %s: python3 with ssl is required\n' "$task" >&2; exit 2; }
+    command -v openssl >/dev/null 2>&1 \
+        || { printf 'SKIP %s: openssl is required\n' "$task" >&2; exit 2; }
+
+    certdir="$tmp/p9-cert"
+    mkdir -p "$certdir"
+    openssl req -x509 -newkey rsa:2048 -nodes \
+        -keyout "$certdir/key.pem" -out "$certdir/cert.pem" -days 1 \
+        -subj "/CN=127.0.0.1" >"$tmp/p9-cert.log" 2>&1 \
+        || { cat "$tmp/p9-cert.log" >&2; fail "openssl cert generation failed"; }
+
+    log="$tmp/$task.build.log"
+    "$CC_BIN" -std=c99 -Wall -Wextra -Werror -I "$repo/src/http" -I "$fixtures" \
+        "$fixtures/$task.c" "$fixtures/p9-server.c" "$repo/src/http/http.shim.c" \
+        -lcurl -o "$tmp/$task" >"$log" 2>&1 \
+        || { cat "$log" >&2; fail "cc failed"; }
+    "$tmp/$task" "$certdir" "$fixtures/p9-tls-redirect.py" >"$tmp/$task.out" 2>&1 \
+        || { cat "$tmp/$task.out" >&2; fail "fixture failed"; }
+    diff -u "$fixtures/$task.expected.out" "$tmp/$task.out" \
+        || fail "output mismatch"
+    printf 'ok %s\n' "$task"
+}
+
 # A positive fixture must finish under ASAN with no report at all.
 run_asan_positive_server() {
     log="$tmp/$task.build.log"
@@ -327,6 +368,12 @@ p8-lifetime-bad)
     ;;
 p8-chain)
     run_ct_server
+    ;;
+p9-same-host | p9-hops10 | p9-hops11 | p9-cross-host | p9-loop | p9-default)
+    run_cc_p9_server
+    ;;
+p9-downgrade)
+    run_p9_downgrade
     ;;
 phase1_no_mapping)
     run_negative

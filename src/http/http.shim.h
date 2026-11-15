@@ -70,6 +70,15 @@ struct HttpRequest {
 #define HTTP_LOCAL_ERR_NO_HANDLE (-1006)
 #define HTTP_LOCAL_ERR_STATE (-1007)
 #define HTTP_LOCAL_ERR_BODY_LIMIT (-1008)
+/* https -> http redirect refused before the next hop is sent (S-03 / F-09). */
+#define HTTP_LOCAL_ERR_REDIRECT (-1009)
+
+/*
+ * Redirect ceiling, fixed by S-03: follow_redirects(1) follows at most this
+ * many redirects, counting redirects and not requests. It is not configurable
+ * and is never exposed as a setter.
+ */
+#define HTTP_MAX_REDIRECTS 10
 
 #define HTTP_DEFAULT_USER_AGENT "ct-http/0.1.0"
 

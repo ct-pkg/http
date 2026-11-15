@@ -1,0 +1,33 @@
+#include "http.shim.h"
+#include "p9-server.h"
+
+#include <stdio.h>
+
+/*
+ * Eleven 302s: the tenth is followed, the eleventh is refused locally, and the
+ * request to /hop/11 (the 11th hop target) is never sent.
+ */
+int main(void)
+{
+    struct P9Server *s = p9_server_start("127.0.0.1");
+    if (s == NULL) {
+        printf("server failed\n");
+        return 1;
+    }
+    p9_server_set_chain(s, 11);
+
+    struct HttpRequest *req = http_request_new(p9_server_url(s, "/hop/0"));
+    http_request_timeout(req, 10000);
+    http_request_follow_redirects(req, 1);
+    struct HttpResponse *res = http_request_send(req);
+
+    printf("status %d error %d requests %d hop11 %d ok %d\n",
+           http_response_status(res), http_response_error(res),
+           p9_server_requests(s), p9_server_hop_requests(s, 11),
+           http_response_is_ok(res));
+
+    http_response_free(&res);
+    http_request_free(&req);
+    p9_server_stop(s);
+    return 0;
+}

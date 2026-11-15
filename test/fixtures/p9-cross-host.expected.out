@@ -1,0 +1,5 @@
+cross auth 0 cookie 0 proxy 0 status 200
+cross referer 0
+port auth 0 cookie 0 proxy 0 status 200
+same auth 1 cookie 1 proxy 1 status 200
+same referer 1

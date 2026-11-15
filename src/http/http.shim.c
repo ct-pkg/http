@@ -285,8 +285,8 @@ struct HttpRequest *http_request_follow_redirects(struct HttpRequest *r, int on)
     }
     r->follow_redirects = on != 0;
     if (r->easy != NULL) {
-        curl_easy_setopt((CURL *)r->easy, CURLOPT_FOLLOWLOCATION,
-                         r->follow_redirects ? 1L : 0L);
+        /* Following is ours: libcurl must not follow and hide the hops. */
+        curl_easy_setopt((CURL *)r->easy, CURLOPT_FOLLOWLOCATION, 0L);
     }
     return r;
 }
@@ -364,6 +364,9 @@ static const char *error_stage(int code)
     }
     if (code == HTTP_LOCAL_ERR_BODY_LIMIT) {
         return "body-limit";
+    }
+    if (code == HTTP_LOCAL_ERR_REDIRECT) {
+        return "redirect";
     }
     if (code < 0) {
         return "local";
@@ -476,6 +479,19 @@ struct BodyBuf {
     struct XferState *xfer;
 };
 
+/* One write sink for both entry points; discard marks an intermediate 3xx. */
+struct HopSink {
+    int streaming;
+    struct BodyBuf *buf; /* non-stream only */
+    HttpChunkCb cb;      /* stream only */
+    void *ud;
+    size_t delivered;
+    size_t max;
+    int limit_fired;
+    struct XferState *xfer;
+    int discard; /* 1 while this hop is a redirect we are about to follow */
+};
+
 /* 0 on success, -1 when realloc fails (libcurl then reports 23). */
 static int body_append(struct BodyBuf *b, const char *ptr, size_t n)
 {
@@ -498,47 +514,75 @@ static int body_append(struct BodyBuf *b, const char *ptr, size_t n)
     return 0;
 }
 
-static size_t write_cb(char *ptr, size_t size, size_t nmemb, void *ud)
+/* Drop an intermediate redirect body before the next hop. */
+static void body_reset(struct BodyBuf *b)
 {
-    struct BodyBuf *b = (struct BodyBuf *)ud;
+    free(b->data);
+    b->data = NULL;
+    b->len = 0;
+    b->cap = 0;
+}
+
+static size_t hop_write_cb(char *ptr, size_t size, size_t nmemb, void *ud)
+{
+    struct HopSink *s = (struct HopSink *)ud;
     size_t n = size * nmemb;
     if (n == 0) {
         return 0;
     }
     /* Cancel before delivery: the chunk never reaches the buffer or the count. */
-    if (b->xfer != NULL && b->xfer->cancel_flag != NULL
-        && *b->xfer->cancel_flag) {
-        b->xfer->cancel_fired = 1;
+    if (s->xfer->cancel_flag != NULL && *s->xfer->cancel_flag) {
+        s->xfer->cancel_fired = 1;
         return 0;
+    }
+    /* Intermediate redirect body: read and drop, do not count or deliver. */
+    if (s->discard) {
+        return n;
     }
     /*
      * Option A cap: deliver exactly max bytes, then stop. Equal to the cap is
      * not an overflow, so an exactly-max response still succeeds.
      */
-    if (b->max > 0 && b->len + n > b->max) {
-        size_t keep = b->max - b->len;
-        b->limit_fired = 1;
+    if (s->streaming) {
+        size_t keep = n;
+        if (s->max > 0 && s->delivered + n > s->max) {
+            keep = s->max - s->delivered;
+            s->limit_fired = 1;
+        }
         if (keep > 0) {
-            if (body_append(b, ptr, keep) != 0) {
+            s->delivered = s->delivered + keep;
+            s->xfer->last_us = now_us();
+            s->xfer->first_byte = 1;
+            if (s->cb != NULL && s->cb(ptr, (int)keep, s->ud) != 0) {
+                s->xfer->aborted = 1; /* libcurl reports 23 */
                 return 0;
             }
-            if (b->xfer != NULL) {
-                b->xfer->last_us = now_us();
-                b->xfer->first_byte = 1;
+        }
+        if (s->limit_fired) {
+            return 0;
+        }
+        return n;
+    }
+
+    if (s->max > 0 && s->buf->len + n > s->max) {
+        size_t keep = s->max - s->buf->len;
+        s->limit_fired = 1;
+        if (keep > 0) {
+            if (body_append(s->buf, ptr, keep) != 0) {
+                s->xfer->aborted = 1;
+                return 0;
             }
+            s->xfer->last_us = now_us();
+            s->xfer->first_byte = 1;
         }
         return 0;
     }
-    if (body_append(b, ptr, n) != 0) {
-        if (b->xfer != NULL) {
-            b->xfer->aborted = 1;
-        }
+    if (body_append(s->buf, ptr, n) != 0) {
+        s->xfer->aborted = 1;
         return 0; /* aborts the transfer with CURLE_WRITE_ERROR */
     }
-    if (b->xfer != NULL) {
-        b->xfer->last_us = now_us();
-        b->xfer->first_byte = 1;
-    }
+    s->xfer->last_us = now_us();
+    s->xfer->first_byte = 1;
     return n;
 }
 
@@ -571,10 +615,280 @@ static int xfer_cb(void *ud, curl_off_t dlt, curl_off_t dln,
  * One synchronous exchange. The request keeps its easy handle: send() never
  * cleans up, so the caller's explicit release stays the only owner. A failed
  * transfer still returns a response (status 0) so the release path is uniform.
+ *
+ * Redirects are followed here, not by libcurl: each hop needs its own decision
+ * about credentials and scheme, which CURLOPT_FOLLOWLOCATION cannot express.
  */
-static struct HttpResponse *real_send(struct HttpRequest *r)
+
+struct Origin {
+    char scheme[8];
+    char host[128];
+    int port;
+};
+
+/* ASCII-only, case-insensitive prefix test on a possibly non-NUL buffer. */
+static int prefix_ci_n(const char *s, size_t n, const char *p)
+{
+    size_t i;
+    for (i = 0; p[i] != '\0'; i++) {
+        char a;
+        char b;
+        if (i >= n) {
+            return 0;
+        }
+        a = s[i];
+        b = p[i];
+        if (a >= 'A' && a <= 'Z') {
+            a = (char)(a - 'A' + 'a');
+        }
+        if (b >= 'A' && b <= 'Z') {
+            b = (char)(b - 'A' + 'a');
+        }
+        if (a != b) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static void origin_parse(const char *url, struct Origin *o)
+{
+    const char *sep;
+    const char *p;
+    const char *slash;
+    const char *hstart;
+    const char *hend;
+    size_t sl;
+    size_t hl;
+    size_t i;
+
+    memset(o, 0, sizeof *o);
+    sep = strstr(url, "://");
+    if (sep == NULL) {
+        return;
+    }
+    sl = (size_t)(sep - url);
+    if (sl >= sizeof o->scheme) {
+        sl = sizeof o->scheme - 1;
+    }
+    for (i = 0; i < sl; i++) {
+        char ch = url[i];
+        o->scheme[i] = (ch >= 'A' && ch <= 'Z') ? (char)(ch - 'A' + 'a') : ch;
+    }
+    o->scheme[sl] = '\0';
+    if (strcmp(o->scheme, "http") != 0 && strcmp(o->scheme, "https") != 0) {
+        return;
+    }
+
+    p = sep + 3;
+    slash = p;
+    while (*slash != '\0' && *slash != '/' && *slash != '?' && *slash != '#') {
+        slash++;
+    }
+    {
+        const char *at = (const char *)memchr(p, '@', (size_t)(slash - p));
+        if (at != NULL) {
+            p = at + 1;
+        }
+    }
+    hstart = p;
+    if (*p == '[') {
+        const char *rb = strchr(p, ']');
+        if (rb == NULL) {
+            return;
+        }
+        hstart = p + 1;
+        hend = rb;
+    } else {
+        hend = p;
+        while (*hend != '\0' && *hend != ':' && *hend != '/'
+               && *hend != '?' && *hend != '#') {
+            hend++;
+        }
+    }
+    hl = (size_t)(hend - hstart);
+    if (hl == 0 || hl >= sizeof o->host) {
+        return;
+    }
+    for (i = 0; i < hl; i++) {
+        char ch = hstart[i];
+        o->host[i] = (ch >= 'A' && ch <= 'Z') ? (char)(ch - 'A' + 'a') : ch;
+    }
+    o->host[hl] = '\0';
+    if (*hend == ':') {
+        o->port = atoi(hend + 1);
+    }
+    if (o->port <= 0) {
+        o->port = strcmp(o->scheme, "https") == 0 ? 443 : 80;
+    }
+}
+
+/* Same scheme + host + port. Unknown URLs compare equal: do not strip blindly. */
+static int origin_same(const char *a, const char *b)
+{
+    struct Origin oa;
+    struct Origin ob;
+    origin_parse(a, &oa);
+    origin_parse(b, &ob);
+    if (oa.host[0] == '\0' || ob.host[0] == '\0') {
+        return 1;
+    }
+    return strcmp(oa.scheme, ob.scheme) == 0
+           && strcmp(oa.host, ob.host) == 0 && oa.port == ob.port;
+}
+
+static int url_is_https(const char *url)
+{
+    return prefix_ci_n(url, strlen(url), "https://");
+}
+
+/* Absolute Location, or a path-absolute / path-relative one resolved on base. */
+static int location_resolve(const char *base, const char *loc,
+                            char *out, size_t cap)
+{
+    struct Origin o;
+    int n;
+    size_t ll = strlen(loc);
+
+    if (ll == 0) {
+        return 0;
+    }
+    if (prefix_ci_n(loc, ll, "http://") || prefix_ci_n(loc, ll, "https://")) {
+        if (ll + 1 > cap) {
+            return 0;
+        }
+        memcpy(out, loc, ll + 1);
+        return 1;
+    }
+    origin_parse(base, &o);
+    if (o.host[0] == '\0') {
+        return 0;
+    }
+    if (loc[0] == '/') {
+        n = snprintf(out, cap, "%s://%s:%d%s", o.scheme, o.host, o.port, loc);
+    } else {
+        const char *sep = strstr(base, "://");
+        const char *path = sep != NULL ? sep + 3 : base;
+        const char *last;
+        while (*path != '\0' && *path != '/') {
+            path++;
+        }
+        last = strrchr(path, '/');
+        if (last == NULL) {
+            n = snprintf(out, cap, "%s://%s:%d/%s", o.scheme, o.host, o.port, loc);
+        } else {
+            size_t dirlen = (size_t)(last - path + 1);
+            n = snprintf(out, cap, "%s://%s:%d%.*s%s", o.scheme, o.host, o.port,
+                         (int)dirlen, path, loc);
+        }
+    }
+    return n > 0 && (size_t)n < cap;
+}
+
+/* Headers that must not cross an origin boundary. */
+static int header_is_sensitive(const char *line)
+{
+    static const char *names[] = {
+        "authorization:", "cookie:", "proxy-authorization:", "referer:"
+    };
+    size_t i;
+    size_t n = strlen(line);
+    for (i = 0; i < sizeof names / sizeof names[0]; i++) {
+        if (prefix_ci_n(line, n, names[i])) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static struct curl_slist *headers_filtered(struct curl_slist *src)
+{
+    struct curl_slist *out = NULL;
+    struct curl_slist *node;
+    for (node = src; node != NULL; node = node->next) {
+        if (!header_is_sensitive(node->data)) {
+            out = curl_slist_append(out, node->data);
+        }
+    }
+    return out;
+}
+
+/* Per-hop facts the header callback collects before the body starts. */
+struct HopState {
+    int status;
+    int follow;
+    int is_redirect;
+    struct HopSink *sink;
+    char location[1024];
+};
+
+static size_t header_cb(char *ptr, size_t size, size_t nmemb, void *ud)
+{
+    struct HopState *h = (struct HopState *)ud;
+    size_t n = size * nmemb;
+
+    if (n >= 5 && memcmp(ptr, "HTTP/", 5) == 0) {
+        size_t i = 0;
+        while (i < n && ptr[i] != ' ') {
+            i++;
+        }
+        h->status = i < n ? atoi(ptr + i + 1) : 0;
+        return n;
+    }
+    if (n == 2 && ptr[0] == '\r' && ptr[1] == '\n') {
+        /* Headers are complete; the body has not been written yet. */
+        if (h->follow && h->location[0] != '\0'
+            && (h->status == 301 || h->status == 302 || h->status == 303
+                || h->status == 307 || h->status == 308)) {
+            h->is_redirect = 1;
+            /* Set before the body starts, so a stream never sees it. */
+            if (h->sink != NULL) {
+                h->sink->discard = 1;
+            }
+        }
+        return n;
+    }
+    if (prefix_ci_n(ptr, n, "location:")) {
+        const char *v = ptr + 9;
+        size_t off = 9;
+        size_t vl;
+        while (off < n && (*v == ' ' || *v == '\t')) {
+            v++;
+            off++;
+        }
+        vl = n - off;
+        while (vl > 0 && (v[vl - 1] == '\r' || v[vl - 1] == '\n'
+                          || v[vl - 1] == ' ' || v[vl - 1] == '\t')) {
+            vl--;
+        }
+        if (vl >= sizeof h->location) {
+            vl = sizeof h->location - 1;
+        }
+        memcpy(h->location, v, vl);
+        h->location[vl] = '\0';
+    }
+    return n;
+}
+
+static struct HttpResponse *perform_request(struct HttpRequest *r, int streaming,
+                                            HttpChunkCb cb, void *ud)
 {
     struct HttpResponse *resp = (struct HttpResponse *)malloc(sizeof(struct HttpResponse));
+    struct BodyBuf buf;
+    struct XferState xfer;
+    struct HopSink sink;
+    CURL *easy;
+    char current_url[2048];
+    int hops = 0;
+    int stripped = 0;
+    int hop_body;
+    int status = 0;
+    int transport = 0;
+    int local_redirect_error = 0;
+    int too_many = 0;
+    int64_t started_us;
+    int64_t elapsed_us = 0;
+
     if (resp == NULL) {
         return NULL;
     }
@@ -589,30 +903,36 @@ static struct HttpResponse *real_send(struct HttpRequest *r)
     resp->timeout_kind = HTTP_TIMEOUT_NONE;
     g_last_curl_code = 0;
 
-    /* Local rejections keep their negative code; no handle is its own case. */
     if (r->local_error != 0 || r->easy == NULL) {
         int local = r->local_error != 0 ? r->local_error : HTTP_LOCAL_ERR_NO_HANDLE;
-        fill_local_error(resp, r->url, local, 1);
+        fill_local_error(resp, r->url, local, streaming ? 0 : 1);
         return resp;
     }
-    if (r->mode == 2) {
-        fill_local_error(resp, r->url, HTTP_LOCAL_ERR_STATE, 1);
+    if (streaming && cb == NULL) {
+        fill_local_error(resp, r->url, HTTP_LOCAL_ERR_ARG, 0);
         return resp;
     }
-    r->mode = 1;
+    if (streaming ? (r->mode == 1) : (r->mode == 2)) {
+        fill_local_error(resp, r->url, HTTP_LOCAL_ERR_STATE, streaming ? 0 : 1);
+        return resp;
+    }
+    r->mode = streaming ? 2 : 1;
     if (r->cancel_requested) {
-        fill_cancel_error(resp, r->url, 1);
+        fill_cancel_error(resp, r->url, streaming ? 0 : 1);
         return resp;
     }
+    if (strlen(r->url) >= sizeof current_url) {
+        fill_local_error(resp, r->url, HTTP_LOCAL_ERR_ARG, streaming ? 0 : 1);
+        return resp;
+    }
+    memcpy(current_url, r->url, strlen(r->url) + 1);
 
-    struct BodyBuf buf;
     buf.data = NULL;
     buf.len = 0;
     buf.cap = 0;
     buf.max = r->max_body_bytes > 0 ? (size_t)r->max_body_bytes : 0;
     buf.limit_fired = 0;
 
-    struct XferState xfer;
     xfer.last_us = now_us();
     xfer.idle_ms = r->idle_timeout_ms;
     xfer.first_byte = 0;
@@ -622,30 +942,117 @@ static struct HttpResponse *real_send(struct HttpRequest *r)
     xfer.aborted = 0;
     buf.xfer = &xfer;
 
-    CURL *easy = (CURL *)r->easy;
-    curl_easy_setopt(easy, CURLOPT_URL, r->url);
-    curl_easy_setopt(easy, CURLOPT_WRITEFUNCTION, write_cb);
-    curl_easy_setopt(easy, CURLOPT_WRITEDATA, &buf);
-    /* Always installed: without it a cancelled stalled stream has no checkpoint. */
+    sink.streaming = streaming;
+    sink.buf = &buf;
+    sink.cb = cb;
+    sink.ud = ud;
+    sink.delivered = 0;
+    sink.max = buf.max;
+    sink.limit_fired = 0;
+    sink.xfer = &xfer;
+    sink.discard = 0;
+
+    easy = (CURL *)r->easy;
+    hop_body = r->body != NULL;
+    started_us = now_us();
+    /* Following is done here; never let libcurl follow behind our back. */
+    curl_easy_setopt(easy, CURLOPT_FOLLOWLOCATION, 0L);
     curl_easy_setopt(easy, CURLOPT_NOPROGRESS, 0L);
     curl_easy_setopt(easy, CURLOPT_XFERINFOFUNCTION, xfer_cb);
     curl_easy_setopt(easy, CURLOPT_XFERINFODATA, &xfer);
+    curl_easy_setopt(easy, CURLOPT_HEADERFUNCTION, header_cb);
 
-    int transport;
-    int64_t started_us = now_us();
-    if (g_injected_curl_code != 0) {
-        transport = g_injected_curl_code; /* test seam: no transfer at all */
+    for (;;) {
+        struct HopState hop;
+        struct curl_slist *filtered = NULL;
+        long code = 0;
+
+        memset(&hop, 0, sizeof hop);
+        hop.follow = r->follow_redirects != 0;
+        hop.sink = &sink;
+        sink.discard = 0;
+        sink.limit_fired = 0;
+        xfer.last_us = now_us();
+
+        if (stripped) {
+            filtered = headers_filtered((struct curl_slist *)r->headers_slist);
+        }
+        curl_easy_setopt(easy, CURLOPT_URL, current_url);
+        curl_easy_setopt(easy, CURLOPT_HTTPHEADER,
+                         stripped ? filtered
+                                  : (struct curl_slist *)r->headers_slist);
+        curl_easy_setopt(easy, CURLOPT_HEADERDATA, &hop);
+        curl_easy_setopt(easy, CURLOPT_WRITEFUNCTION, hop_write_cb);
+        curl_easy_setopt(easy, CURLOPT_WRITEDATA, &sink);
+        if (hop_body && r->body != NULL) {
+            /* Size first, then copy: a NUL inside the body must survive. */
+            curl_easy_setopt(easy, CURLOPT_POSTFIELDSIZE, (long)r->body_len);
+            curl_easy_setopt(easy, CURLOPT_COPYPOSTFIELDS, r->body);
+            curl_easy_setopt(easy, CURLOPT_HTTPGET, 0L);
+        } else {
+            curl_easy_setopt(easy, CURLOPT_HTTPGET, 1L);
+        }
+
+        if (g_injected_curl_code != 0) {
+            transport = g_injected_curl_code; /* test seam: no transfer at all */
+        } else {
+            transport = (int)curl_easy_perform(easy);
+        }
+        g_last_curl_code = transport;
+        elapsed_us = now_us() - started_us;
+
+        if (g_injected_curl_code == 0) {
+            curl_easy_getinfo(easy, CURLINFO_RESPONSE_CODE, &code);
+        }
+        status = hop.status != 0 ? hop.status : (int)code;
+        if (filtered != NULL) {
+            curl_slist_free_all(filtered);
+        }
+
+        if (!hop.is_redirect) {
+            break;
+        }
+        /* The fixed ceiling counts redirects, not requests (S-03). */
+        if (hops >= HTTP_MAX_REDIRECTS) {
+            too_many = 1;
+            break;
+        }
+        {
+            char next_url[2048];
+            if (!location_resolve(current_url, hop.location, next_url,
+                                  sizeof next_url)) {
+                too_many = 1; /* unusable Location: stop like a runaway chain */
+                break;
+            }
+            if (url_is_https(current_url)
+                && prefix_ci_n(next_url, strlen(next_url), "http://")) {
+                local_redirect_error = 1;
+                break;
+            }
+            if (!origin_same(current_url, next_url)) {
+                stripped = 1; /* sticky: credentials never reappear later */
+            }
+            /* libcurl's own POST rewrite: 301/302/303 become GET, 307/308 keep. */
+            if (hop.status == 301 || hop.status == 302 || hop.status == 303) {
+                hop_body = 0;
+            }
+            hops++;
+            memcpy(current_url, next_url, strlen(next_url) + 1);
+            body_reset(&buf);
+        }
+    }
+
+    resp->status = status;
+    if (local_redirect_error) {
+        /* A policy rejection is not a completed response: keep status 0. */
+        resp->status = 0;
+        resp->error = HTTP_LOCAL_ERR_REDIRECT;
+    } else if (too_many) {
+        resp->error = (int)CURLE_TOO_MANY_REDIRECTS;
     } else {
-        transport = (int)curl_easy_perform(easy);
+        resp->error = transport;
     }
-    int64_t elapsed_us = now_us() - started_us;
-    g_last_curl_code = transport;
 
-    long code = 0;
-    if (g_injected_curl_code == 0) {
-        curl_easy_getinfo(easy, CURLINFO_RESPONSE_CODE, &code);
-    }
-    resp->status = (int)code;
     /*
      * A bare 28 says "timed out", never which limit. Judge at the point the
      * transfer returns: if libcurl never completed the connection and the
@@ -654,16 +1061,18 @@ static struct HttpResponse *real_send(struct HttpRequest *r)
      * progress callback and is reported as 28 with kind IDLE, so the timeout
      * family stays one code.
      */
-    int error = transport;
     if (xfer.cancel_fired) {
-        /* The flag stopped it, whatever CURLcode the abort surfaced as. */
-        error = (int)CURLE_ABORTED_BY_CALLBACK;
+        resp->error = (int)CURLE_ABORTED_BY_CALLBACK;
         resp->cancelled = 1;
         resp->timeout_kind = HTTP_TIMEOUT_NONE;
-    } else if (buf.limit_fired) {
-        /* The local cap is more specific than the write error libcurl saw. */
-        error = HTTP_LOCAL_ERR_BODY_LIMIT;
+    } else if (xfer.aborted) {
+        resp->error = (int)CURLE_WRITE_ERROR;
+    } else if (sink.limit_fired) {
+        resp->error = HTTP_LOCAL_ERR_BODY_LIMIT;
         resp->timeout_kind = HTTP_TIMEOUT_NONE;
+    } else if (xfer.idle_fired) {
+        resp->error = (int)CURLE_OPERATION_TIMEDOUT;
+        resp->timeout_kind = HTTP_TIMEOUT_IDLE;
     } else if (transport == (int)CURLE_OPERATION_TIMEDOUT) {
         curl_off_t connect_us = 0;
         if (g_injected_curl_code == 0) {
@@ -675,166 +1084,37 @@ static struct HttpResponse *real_send(struct HttpRequest *r)
         } else {
             resp->timeout_kind = HTTP_TIMEOUT_TOTAL;
         }
-    } else if (xfer.idle_fired) {
-        error = (int)CURLE_OPERATION_TIMEDOUT;
-        resp->timeout_kind = HTTP_TIMEOUT_IDLE;
     }
-    resp->error = error;
-    resp->body = buf.data != NULL ? buf.data : dup_string("");
-    resp->body_len = (int)buf.len;
-    /* Written down here: total_bytes is the write-callback total, not a
-       getinfo figure, so the two sizes can never disagree. */
-    resp->total_bytes = (int)buf.len;
-    if (error != 0) {
-        resp->error_msg = make_error_msg(r->url, error);
+
+    if (streaming) {
+        resp->body = NULL;
+        resp->body_len = 0;
+        resp->total_bytes = (int)sink.delivered;
+    } else {
+        resp->body = buf.data != NULL ? buf.data : dup_string("");
+        resp->body_len = (int)buf.len;
+        /* total_bytes is the write-callback total, not a getinfo figure. */
+        resp->total_bytes = (int)buf.len;
+    }
+    if (resp->error != 0) {
+        resp->error_msg = make_error_msg(r->url, resp->error);
         resp->error_detail = make_error_detail(
-            r->url, error, resp->timeout_kind,
-            error == HTTP_LOCAL_ERR_BODY_LIMIT ? (int)buf.max : 0);
+            r->url, resp->error, resp->timeout_kind,
+            resp->error == HTTP_LOCAL_ERR_BODY_LIMIT ? (int)buf.max : 0);
     }
     return resp;
 }
 
-/* Streaming sink: the response buffer stays empty; cb sees each arrival. */
-struct StreamSink {
-    HttpChunkCb cb;
-    void *ud;
-    size_t delivered;
-    size_t max;
-    int limit_fired;
-    struct XferState xfer; /* also carries cancel_fired and aborted */
-};
-
-static size_t stream_write_cb(char *ptr, size_t size, size_t nmemb, void *ud)
+static struct HttpResponse *real_send(struct HttpRequest *r)
 {
-    struct StreamSink *s = (struct StreamSink *)ud;
-    size_t n = size * nmemb;
-    if (n == 0) {
-        return 0;
-    }
-    /* Checked before the user callback: a cancelled chunk is never delivered. */
-    if (s->xfer.cancel_flag != NULL && *s->xfer.cancel_flag) {
-        s->xfer.cancel_fired = 1;
-        return 0;
-    }
-    if (s->max > 0 && s->delivered + n > s->max) {
-        size_t keep = s->max - s->delivered;
-        s->limit_fired = 1;
-        if (keep > 0) {
-            s->delivered = s->delivered + keep;
-            if (s->cb != NULL && s->cb(ptr, (int)keep, s->ud) != 0) {
-                s->xfer.aborted = 1;
-            }
-            s->xfer.last_us = now_us();
-            s->xfer.first_byte = 1;
-        }
-        return 0;
-    }
-    /* Count before the call: the chunk was handed over even if it aborts. */
-    s->delivered = s->delivered + n;
-    s->xfer.last_us = now_us();
-    s->xfer.first_byte = 1;
-    if (s->cb != NULL && s->cb(ptr, (int)n, s->ud) != 0) {
-        s->xfer.aborted = 1;
-        return 0; /* libcurl reports CURLE_WRITE_ERROR(23) */
-    }
-    return n;
+    return perform_request(r, 0, NULL, NULL);
 }
 
 static struct HttpResponse *real_send_stream(struct HttpRequest *r,
                                              HttpChunkCb cb,
                                              void *ud)
 {
-    struct HttpResponse *resp = (struct HttpResponse *)malloc(sizeof(struct HttpResponse));
-    if (resp == NULL) {
-        return NULL;
-    }
-    resp->status = 0;
-    resp->body = NULL;
-    resp->body_len = 0;
-    resp->total_bytes = 0;
-    resp->error = 0;
-    resp->error_msg = NULL;
-    resp->error_detail = NULL;
-    resp->cancelled = 0;
-    resp->timeout_kind = HTTP_TIMEOUT_NONE;
-    g_last_curl_code = 0;
-
-    if (r->local_error != 0 || r->easy == NULL) {
-        int local = r->local_error != 0 ? r->local_error : HTTP_LOCAL_ERR_NO_HANDLE;
-        fill_local_error(resp, r->url, local, 0);
-        return resp;
-    }
-    if (cb == NULL) {
-        fill_local_error(resp, r->url, HTTP_LOCAL_ERR_ARG, 0);
-        return resp;
-    }
-    if (r->mode == 1) {
-        fill_local_error(resp, r->url, HTTP_LOCAL_ERR_STATE, 0);
-        return resp;
-    }
-    r->mode = 2;
-    if (r->cancel_requested) {
-        fill_cancel_error(resp, r->url, 0);
-        return resp;
-    }
-
-    struct StreamSink sink;
-    sink.cb = cb;
-    sink.ud = ud;
-    sink.delivered = 0;
-    sink.max = r->max_body_bytes > 0 ? (size_t)r->max_body_bytes : 0;
-    sink.limit_fired = 0;
-    sink.xfer.last_us = now_us();
-    sink.xfer.idle_ms = r->idle_timeout_ms;
-    sink.xfer.first_byte = 0;
-    sink.xfer.idle_fired = 0;
-    sink.xfer.cancel_flag = &r->cancel_requested;
-    sink.xfer.cancel_fired = 0;
-    sink.xfer.aborted = 0;
-
-    CURL *easy = (CURL *)r->easy;
-    curl_easy_setopt(easy, CURLOPT_URL, r->url);
-    curl_easy_setopt(easy, CURLOPT_WRITEFUNCTION, stream_write_cb);
-    curl_easy_setopt(easy, CURLOPT_WRITEDATA, &sink);
-    /* Always installed: cancellation needs a checkpoint on a stalled stream. */
-    curl_easy_setopt(easy, CURLOPT_NOPROGRESS, 0L);
-    curl_easy_setopt(easy, CURLOPT_XFERINFOFUNCTION, xfer_cb);
-    curl_easy_setopt(easy, CURLOPT_XFERINFODATA, &sink.xfer);
-
-    int transport;
-    if (g_injected_curl_code != 0) {
-        transport = g_injected_curl_code;
-    } else {
-        transport = (int)curl_easy_perform(easy);
-    }
-    g_last_curl_code = transport;
-
-    long code = 0;
-    if (g_injected_curl_code == 0) {
-        curl_easy_getinfo(easy, CURLINFO_RESPONSE_CODE, &code);
-    }
-    resp->status = (int)code;
-    if (sink.xfer.cancel_fired) {
-        resp->error = (int)CURLE_ABORTED_BY_CALLBACK;
-        resp->cancelled = 1;
-    } else if (sink.xfer.aborted) {
-        resp->error = (int)CURLE_WRITE_ERROR;
-    } else if (sink.limit_fired) {
-        resp->error = HTTP_LOCAL_ERR_BODY_LIMIT;
-    } else if (sink.xfer.idle_fired) {
-        resp->error = (int)CURLE_OPERATION_TIMEDOUT;
-        resp->timeout_kind = HTTP_TIMEOUT_IDLE;
-    } else {
-        resp->error = transport;
-    }
-    resp->total_bytes = (int)sink.delivered;
-    if (resp->error != 0) {
-        resp->error_msg = make_error_msg(r->url, resp->error);
-        resp->error_detail = make_error_detail(
-            r->url, resp->error, resp->timeout_kind,
-            resp->error == HTTP_LOCAL_ERR_BODY_LIMIT ? (int)sink.max : 0);
-    }
-    return resp;
+    return perform_request(r, 1, cb, ud);
 }
 
 /* Dispatch through the struct field: no vtable lookup, one indirect call. */
