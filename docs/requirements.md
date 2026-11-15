@@ -38,7 +38,7 @@
 - **问题**：包必须能被 `ct get` / `ct install` 识别，声明编译器下限与链接选项，且不把 libcurl 头带进 CT 单元。
 - **验收判据**：
   - `bash tools/check.sh g0` 退出 0（2026-11-13 实测：`ok g0 ... version 0.1.0`）。
-  - `ct.pkg` 含 `name=http`、`version=0.1.0`、`licence=MIT`、`ldflags=-lcurl`、`requires=ct >= 0.34.0`；删掉任一键后 `ct get` 非零退出并给出缺键文案。
+  - `ct.pkg` 含 `name=http`、`version=0.2.0`、`licence=MIT`、`ldflags=-lcurl`、`requires=ct >= 0.53.1`；删掉任一键后 `ct get` 非零退出并给出缺键文案。
   - 构建产物 `otool -L`（macOS）/`ldd`（Linux）只指向系统 libcurl，没有仓库内 curl 副本。
 - **非目标**：不自带/vendored curl；不提交索引行（只出提案）；不做预发布/构建元数据。
 - **CT 依赖/阻塞**：`.m.ct` + `.shim.h/.c` + `ldflags`/`requires`（`ct-lang/docs/package-guide.md:57-76`、`docs/bindings-and-patterns.md:80-180`）——已支持。
@@ -275,10 +275,11 @@
 
 | 能力 | 证据 | 级别 | 影响条目 |
 | --- | --- | --- | --- |
-| 静态固有方法 `Type.make()` | `ct-lang/test/ast/229_inherent_impl/prog.ct:14,19`；`docs/roadmap.md:49`（Phase 34，v0.34.0） | 已支持 | R-02 |
+| 静态固有方法 `Type.make()` | `ct-lang/test/ast/229_inherent_impl/prog.ct:14,19`；`docs/roadmap.md:49`（Phase 34，v0.34.0） | 已支持（本包自 PH-11 起不再使用，公开面为 `map trait`） | R-02（历史） |
 | `impl Drop` + `} use Drop;` + `delete` | `ct-lang/test/ast/63_own_return_field/prog.ct:9-15,38`；`test/archive/cases/22_drop.ct:5-23` | 已支持 | R-02、R-16 |
 | 函数指针 typedef + 结构体字段调用 | `ct-lang/test/ast/27_fnptr_forms/prog.ct:9-13,39-40` | 已支持 | R-12 |
 | `.m.ct` + `.shim.h/.c` + `ldflags`/`requires` | `ct-lang/docs/package-guide.md:57-76`；`docs/bindings-and-patterns.md:80-180` | 已支持 | R-01、R-15 |
+| 统一 `ct` 入口（`ct install` 打印 `ct build` + 包根 `-I`） | `test/gates/p10_install.sh`：`v0.53.1` 得 `install ok` / `200`；`v0.49.0` 打印 `ct-ast build` 并退出 1 | 已支持，下限 `v0.53.1` | R-01 |
 | 单表达式链式方法调用 | `selfhost/ct-ast/backend/emit/Emitter.h.ct:2174`；`selfhost/check-ast.sh:4320-4323`（负例） | 软阻塞：一条语句一个方法 | R-03～R-09、R-12 |
 | `Type::new()` 命名空间限定构造 | `selfhost/ct-ast/frontend/parse/Expr.h.ct:5553`（错误文案） | 软阻塞：改用 `Type.new()` | R-02 |
 | `namespace` 单元目录（D13） | `ct-lang/docs/package-guide.md:35-52` | 软阻塞：不加 namespace 或迁目录 | R-01、Q-09 |

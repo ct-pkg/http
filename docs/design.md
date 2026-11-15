@@ -37,8 +37,11 @@
 | 3 | 方法返回 `self` 做链式配置 | **返回 `self` 成立；单表达式链不成立** | `ct-lang/lib/std/Str.h.ct:131-136`（`Str retain()` + `self->…`）；探针 `p3a.ct`（`p = r.url("x")`）编过、`p->n == 1`。`p3i.ct`（`p = mk().url("x").header(…)`）报 `error: a method call on a temporary is only allowed at the start of a statement or of an assignment`；规则源码在 `ct-lang/selfhost/ct-ast/backend/emit/Emitter.h.ct:2174`，反例进真门禁：`ct-lang/selfhost/check-ast.sh:4321` |
 | 4 | `typedef int (*HttpCB)(char*, int, void*)` + 结构体字段 + `->field` 调用 | **成立** | `ct-lang/test/ast/27_fnptr_forms/prog.ct:9-22`（`typedef int (*BinOp)(int,int);`、字段 `BinOp add;`、`c.add(2,3)` / `p->add(2,3)`）；探针 `p4.ct`（`HttpCB` + `void *ud`，`r->cb(p,n,r->ud)`）编过并返回 0 |
 
-**编译器前置条件**：第 1 条（静态固有方法）来自 Phase 34；发布版低于该 phase 的 `ct`
-编不过本包，所以 `ct.pkg` 写 `requires = ct >= 0.34.0`。
+**编译器前置条件**：本包的公开面是 `pub trait` + `map trait` + namespace 单元，
+不再使用静态固有方法（`grep -rn 'impl ' http/` 命中 0）。下限由安装接口决定：
+`ct install` 必须打印 `ct build -I vendor/http …`（见 `test/gates/p10_install.sh`）；
+`ct v0.49.0` 仍打印 `ct-ast build`，安装路径失败，故 `ct.pkg` 写 `requires = ct >= 0.53.1`
+（PH-11 卡 §7.1）。
 
 ---
 

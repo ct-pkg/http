@@ -24,7 +24,8 @@
 
 ## 依赖与安装
 
-- `ct v0.44.1`（包清单 `requires` 的下限）、系统 `cc`、系统 libcurl（`-lcurl`）。
+- `ct v0.53.1`（包清单 `requires` 的下限；统一 `ct` 入口，`ct install` 打印 `ct build`）、
+  系统 `cc`、系统 libcurl（`-lcurl`）。
 - `http.shim.c` 由 `ct build` 自动列入 cc 行；`ct build` 不读 `ct.pkg` 的 `ldflags`，
   所以链接参数必须显式传 `--ldflags "-lcurl"`。
 

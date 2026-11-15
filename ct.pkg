@@ -7,11 +7,13 @@
 # Secure defaults: TLS verification on, redirects off. The package does no
 # connection pooling, retries, proxying or allow-listing.
 #
-# Requires the compiler line that ships static inherent methods
-# (`impl T { static T *new(); }`, Phase 34); a released ct that predates it
-# cannot compile this package.
+# Requires the compiler line whose installer is the unified `ct` entry: `ct
+# install` must print a `ct build` command with the package-root include
+# (`-I vendor/http`). ct v0.49.0 still printed `ct-ast build`, so the install
+# path documented in README fails there; v0.53.1 is the release this package is
+# verified against (test/gates/p10_install.sh prints `install ok` and `200`).
 name = http
 version = 0.1.0
 licence = MIT
 ldflags = -lcurl
-requires = ct >= 0.34.0
+requires = ct >= 0.53.1
