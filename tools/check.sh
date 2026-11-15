@@ -3,7 +3,7 @@
 # tools/check.sh - package gates for ct-http.
 #
 #   bash tools/check.sh g0    spec block, instantiation table, session map,
-#                             version landing (AGENTS 6.4 / 11.5)
+#                             version landing, package manifest (AGENTS 6.4 / 11.5)
 #   bash tools/check.sh g1    phase card: ten items, seven task columns,
 #                             frozen exit-criteria / task-list digests, errata
 #   bash tools/check.sh g2    design acceptance map (R-* -> ACC-*)
@@ -190,19 +190,35 @@ g0)
     ctpkg="${CT_PKG:-$pkg/ct.pkg}"
     readme="${README_MD:-$pkg/README.md}"
 
-    # 1. generated spec block + docs/spec full copy
+    # 1. package manifest: publisher/ns-root are required, ns-root must be a
+    #    relative existing directory, and no absolute -I may appear in the tree
+    [ -x "$CT_BIN" ] || fail "ct not found: $CT_BIN"
+    pkg_dir="${CT_PKG_DIR:-$pkg}"
+    out="$("$CT_BIN" pkg check "$pkg_dir" 2>&1)" || {
+        printf '%s\n' "$out" >&2
+        fail "pkg check: $pkg_dir"
+    }
+
+    # 2. version landing: ct.pkg#version equals the README version line
+    pkg_ver="$(awk -F'=' '/^version[[:space:]]*=/ { gsub(/[[:space:]]/, "", $2); print $2; exit }' "$ctpkg")"
+    [ -n "$pkg_ver" ] || fail "ct.pkg has no version"
+    readme_ver="$(sed -n 's/^- 版本：\([0-9][0-9.]*\).*/\1/p' "$readme" | head -n 1)"
+    [ "$readme_ver" = "$pkg_ver" ] \
+        || fail "version landing differs: ct.pkg=$pkg_ver README=$readme_ver"
+
+    # 3. generated spec block + docs/spec full copy
     [ -f "$SPEC_BIN" ] || fail "spec tool not found: $SPEC_BIN"
     bash "$SPEC_BIN" --check "$agents" || fail "sync-agents --check"
 
-    # 2. docs/session-map.md
+    # 4. docs/session-map.md
     [ -f "$sm" ] || fail "missing docs/session-map.md"
 
-    # 3. the three landing sections, outside the generated block
+    # 5. the three landing sections, outside the generated block
     for h in '### 0.1 本项目实例化' '### 0.2 话术路由' '### 0.3 偏离项'; do
         grep -qxF "$h" "$agents" || fail "missing landing section: $h"
     done
 
-    # 4. eight non-empty instantiation rows (header + separator + 8 rows)
+    # 6. eight non-empty instantiation rows (header + separator + 8 rows)
     rows="$(awk '
         /^### 0\.1 / { inb = 1; next }
         /^### 0\.2 / { inb = 0 }
@@ -211,14 +227,17 @@ g0)
     ' "$agents")"
     [ "$rows" -ge 10 ] || fail "instantiation table has $((rows - 2)) rows, need 8"
 
-    # 5. version landing: ct.pkg#version equals the README version line
-    pkg_ver="$(awk -F'=' '/^version[[:space:]]*=/ { gsub(/[[:space:]]/, "", $2); print $2; exit }' "$ctpkg")"
-    [ -n "$pkg_ver" ] || fail "ct.pkg has no version"
-    readme_ver="$(sed -n 's/^- 版本：\([0-9][0-9.]*\).*/\1/p' "$readme" | head -n 1)"
-    [ "$readme_ver" = "$pkg_ver" ] \
-        || fail "version landing differs: ct.pkg=$pkg_ver README=$readme_ver"
-
-    printf 'ok g0 (spec block, 8 rows, routing, deviations, session map, version %s)\n' "$pkg_ver"
+    printf 'ok g0 (spec block, 8 rows, routing, deviations, session map, pkg check, version %s)\n' "$pkg_ver"
+    ;;
+pkgcheck)
+    # Standalone entry for the manifest check alone; g0 runs the same step.
+    [ -x "$CT_BIN" ] || fail "ct not found: $CT_BIN"
+    pkg_dir="${CT_PKG_DIR:-$pkg}"
+    out="$("$CT_BIN" pkg check "$pkg_dir" 2>&1)" || {
+        printf '%s\n' "$out" >&2
+        fail "pkg check: $pkg_dir"
+    }
+    printf 'ok pkgcheck (%s)\n' "$out"
     ;;
 g1)
     if [ -n "${CARD_FILE:-}" ]; then
@@ -297,7 +316,7 @@ g2 | g4 | g5 | g6 | g7 | g8 | g9)
     . "$here/gates/$gate.sh"
     ;;
 *)
-    printf 'usage: bash tools/check.sh <g0|g1|...|g9>\n' >&2
+    printf 'usage: bash tools/check.sh <g0|g1|...|g9|pkgcheck>\n' >&2
     exit 2
     ;;
 esac

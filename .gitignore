@@ -1,0 +1,4 @@
+# Consumer-side artifacts produced by `ct get` / `ct install`.
+# A package repo never ships them.
+ct.lock
+vendor/

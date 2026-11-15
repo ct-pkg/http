@@ -20,4 +20,17 @@ rc=$?
 grep -q 'version landing differs' "$tmp/out" \
     || { cat "$tmp/out" >&2; echo "FAIL g0-negative: wrong diagnostic" >&2; exit 1; }
 printf '  rejected version-landing: %s\n' "$(head -n 1 "$tmp/out")"
-printf 'ok g0-negative (1 rejected case)\n'
+
+# A manifest without the S1 identity keys must be refused by ct pkg check.
+mkdir -p "$tmp/bad"
+grep -vE '^(publisher|ns-root)[[:space:]]*=' "$repo/ct.pkg" >"$tmp/bad/ct.pkg"
+grep -q '^name = http' "$tmp/bad/ct.pkg" \
+    || { echo "FAIL g0-negative: manifest strip failed" >&2; exit 1; }
+
+CT_PKG_DIR="$tmp/bad" bash "$repo/tools/check.sh" pkgcheck >"$tmp/out2" 2>&1
+rc=$?
+[ "$rc" -eq 1 ] || { cat "$tmp/out2" >&2; echo "FAIL g0-negative: expected rc=1 on pkg check, got $rc" >&2; exit 1; }
+grep -q "is missing 'publisher'" "$tmp/out2" \
+    || { cat "$tmp/out2" >&2; echo "FAIL g0-negative: wrong pkg diagnostic" >&2; exit 1; }
+printf '  rejected pkg-manifest: %s\n' "$(grep "is missing 'publisher'" "$tmp/out2" | head -n 1)"
+printf 'ok g0-negative (2 rejected cases)\n'
