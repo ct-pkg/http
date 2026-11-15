@@ -27,12 +27,25 @@
 ## 3. tag 四项校验
 
 ```console
-<tag 后回填>
+$ git cat-file -t v0.2.0
+tag
+$ git rev-parse v0.2.0^{commit}
+1ea2972b29c46bdf48f5455d3378d0c25031178e
+$ git rev-parse HEAD
+1ea2972b29c46bdf48f5455d3378d0c25031178e
+$ git merge-base --is-ancestor v0.2.0 HEAD
+rc=0
+$ git rev-parse v0.2.0
+99609e5778f5b612337cc5d864dae5f414e49646
 ```
+
+tag 建立后又追加了 T5 记录提交，最终 `v0.2.0` 重建到该提交；最终对象号见本文件末尾。
 
 `v0.1.0` 未移动、未删除；tag 之后 HEAD 不再前进，下一次改动重开新相。
 
 ## 4. 门禁原始输出
+
+以下为收口提交 `1ea2972` 上的复跑；tag 建成后的最终复跑见交付报告（`g8` 的 in-scope 计数会随提交数增长）。
 
 ```console
 == g0 rc=0
@@ -45,7 +58,7 @@ ok g2 (19 requirements mapped, 24 ACC entries, anchors resolve)
 ok g3 (abi, chain, variable landing, negative import, shim lifecycle, release, response ownership, ops, request config, response bytes, take_body, failure codes, error model, predicates, timeouts, streaming, cancellation, lifetime, redirects, credentials, downgrade)
 == g4 rc=0
 note g4-version: PATCH accounting deferred by deviation V-001 (0.1.0 number line)
-ok g4 (132 docs <= 300 lines, 8 snippets compiled, 13 blocks bound, anchors/applies/readme/version ok)
+ok g4 (138 docs <= 300 lines, 8 snippets compiled, 13 blocks bound, anchors/applies/readme/version ok)
 == g5 rc=0
 ok g5 (66 task evidence files, 9 gate negatives exercised)
 == g6 rc=0
@@ -54,7 +67,7 @@ ok g6 (3 issues, status/evidence legal, unmet criteria traced)
 == g7 rc=0
 ok g7 (278 files scanned, deps consistent, 7 sanitizer fixtures)
 == g8 rc=0
-ok g8 (11 cards frozen, 19 commits in scope, version/tag rules)
+ok g8 (11 cards frozen, 20 commits in scope, version/tag rules)
 == g9 rc=0
 ok g9 (spec 1.10.0, sha256 matches master)
 ```
@@ -103,6 +116,7 @@ ok g9 (spec 1.10.0, sha256 matches master)
 | `2824452` | 19 个 `applies-to` 同步到 `0.2.0` |
 | `6653560` | 编译器下限 `ct >= 0.53.1` 与能力依据同步 |
 | `16ef5bc` | 版本落点 `0.2.0`、CHANGELOG 与 V-001 收敛 |
-| 本提交 | 收口、逐任务红证、会话地图 |
+| `1ea2972` | 收口、逐任务红证、会话地图 |
+| 本提交 | tag 四项校验记录（T5），`v0.2.0` 重建到本提交 |
 
-tag `v0.2.0` 在“本提交”之上创建（annotated），对象号见 §3。
+tag `v0.2.0` 建在本提交之上（annotated）；本提交的提交号与 tag 对象号见交付报告。
