@@ -216,11 +216,14 @@
 
 以上任一若要进入 0.1.0，先走需求层立项，不在本 roadmap 内改判据。
 
-## 5. 下一相（已裁定，待开卡）
+## 5. 下一相：PH-12 / 0.3.0（已裁定，待开卡）
 
 - 内容：**S-02 `method()`（新增入口）+ S-01 收窄为 `content_type()`**。
   裁定见 [docs/decisions/S-01-S-02-ruling.md](../decisions/S-01-S-02-ruling.md)。
-- 相位号：**待定**。本文件不占号；开卡时按 `docs/phases/PH-<n>/` 与 `version-minor` 规则登记。
-- 版本号：**待定**。开卡时按 `AGENTS.md` 6.7 V-1 与 `deviation: V-001` 的 `d = 9` 换算；
-  本裁定不 bump、不打 tag。
+- 相位号：**PH-12**。PH-1 至 PH-11 均已收口、不存在排队相位，下一相只能是 PH-12。
+- 版本号：**0.3.0**。按 `AGENTS.md` 6.7 V-1 与 `deviation: V-001` 的 `d = 9` 反算：
+  `MINOR = phase − d = 12 − 9 = 3`，PATCH = 0（本相尚无新立案 fix），即 `0.3.0`，无估算成分。
+- 开卡时同步：`ct.pkg#version`、README 版本行、CHANGELOG 首条与全部 `applies-to`；
+  `docs/phases/PH-12/card.md` 冻结判据与任务。
 - 不做：不替换 `post()`；不提供 `header()`/`header_all()`；不与 S-04/S-05 捆绑。
+- 本文件只登记相位与版本，不 bump、不打 tag。
