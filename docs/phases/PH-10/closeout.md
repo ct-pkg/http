@@ -81,23 +81,78 @@ $ bash test/gates/g9_negative.sh  → rejected pin/forged             rc=0
 
 ## 4. 未满足与不可执行项（逐条，不计通过）
 
-### 4.1 E-P10-1 的 Linux 半边：不可执行
+### 4.1 E-P10-1 的 Linux 半边：UNVERIFIED（待环境）
 
-- 本机：`uname -a` = `Darwin … arm64`；`command -v podman` 与 `command -v docker` 均退出 1。
-- 缺两样环境：①容器运行时（podman 或 docker）；②Linux 版 `ct` 二进制
-  （`test/run.sh` 默认 `CT_BIN=/Users/samxx/.local/bin/ct`，macOS Mach-O 不能在容器里执行）。
-- 有环境后的补跑命令（在仓库根执行）：
+- 本机事实（2026-11-15）：
+  - `uname -a` = `Darwin … arm64`；
+  - `command -v podman`、`command -v docker` 均无命中（退出 1）；
+  - `file /Users/samxx/.local/bin/ct` = `Mach-O 64-bit executable arm64`，**不能**在 Linux 容器里执行。
+- Linux 版 `ct` 的来源：ct-lang 没有发布 Linux 预编译二进制，只发 tag；`install.sh` 从源码自举
+  L0（C seed）→ L1 → L2 → ct-ast，要求 `cc` 与 `tar`。因此容器里能自己造出来，
+   **不构成额外阻塞**；唯一缺的是容器运行时，由用户安装。
+- 状态：`E-P10-1` 的 Linux 半边记 **`UNVERIFIED（待环境）`**，不计通过；macOS 半边已完成。
+
+容器运行时到位后，按下列四步执行（在仓库根，主机 shell）：
+
+**第 1 步：起容器并装包**（`debian:bookworm`；Apple silicon 用 `--platform linux/arm64`）
 
 ```console
-podman run --rm -v "$PWD":/w -w /w \
-  -e CT_BIN=/usr/local/bin/ct \
-  docker.io/library/debian:bookworm \
-  bash -lc 'apt-get update && apt-get install -y build-essential libcurl4-openssl-dev \
-           && uname -a && bash tools/check.sh g3'
+podman run --rm -it --platform linux/arm64 \
+  -v "$PWD":/w -v /Users/samxx/trae-ws/ct-lang:/src:ro -w /w \
+  docker.io/library/debian:bookworm bash
 ```
 
-- 通过判据：容器内 `uname -s` 输出 `Linux`，`bash tools/check.sh g3` 退出 0。
-- 在此之前 E-P10-1 不计通过。
+容器内：
+
+```console
+apt-get update
+apt-get install -y --no-install-recommends \
+  build-essential libcurl4-openssl-dev python3 openssl perl git binutils
+```
+
+- 用途：`build-essential`（gcc/ASAN）、`libcurl4-openssl-dev`（包的唯一链接依赖）、
+  `python3`（本地回环 server 与 `p10_install.sh`）、`openssl`（`p9-downgrade` 证书）、
+  `perl`（`shasum`，门禁算摘要用）、`git`（g5/g8 读历史）、`binutils`（`nm`，`p2-nm` 用）。
+
+**第 2 步：在容器内自举 Linux 版 `ct` 并指定 `CT_BIN`**
+
+```console
+CT_SOURCE_DIR=/src sh /src/install.sh -p /usr/local/bin
+/usr/local/bin/ct -v          # 期望：ct v0.49.0（随 /src 检出的 tag）
+export CT_BIN=/usr/local/bin/ct
+```
+
+- `CT_SOURCE_DIR=/src` 走本地检出、不下载；`-p /usr/local/bin` 让 `ct` 进 PATH 旁的固定位置。
+- `CT_BIN` 是 `tools/check.sh` 与 `test/run.sh` 的覆盖点；不设会回落到 macOS 的
+  `/Users/samxx/.local/bin/ct`，在容器里必然失败。
+- 若 `install.sh` 报 `CC not found`，先 `apt-get install -y build-essential`（第 1 步已含）。
+
+**第 3 步：跑判据**
+
+```console
+cd /w
+bash tools/check.sh g3                      # E-P10-1 的容器内判据
+for g in g0 g1 g2 g4 g5 g6 g7 g8 g9; do     # 可选：Linux 上顺带复核其余门禁
+    bash tools/check.sh "$g" || echo "FAIL $g"
+done
+```
+
+**第 4 步：留原始输出**（追加到 `docs/reviews/PH-10/E-P10-1-linux.md`，未跑时该文件不建）
+
+```console
+{
+  uname -a
+  cc --version | head -1
+  /usr/local/bin/ct -v
+  bash tools/check.sh g3
+  echo "g3 rc=$?"
+} 2>&1 | tee /tmp/p10-linux-g3.log
+```
+
+- 必须留的片段：`uname -a`（`Linux … aarch64`）、`cc --version` 首行、`ct -v`、
+  `ok g3 (…)` 汇总行、`g3 rc=0`。
+- 通过判据：容器内 `uname -s` = `Linux` 且 `bash tools/check.sh g3` 退出 0；两者缺一不记通过。
+- 在此之前，`E-P10-1` 的 Linux 半边保持 `UNVERIFIED`，不写「已通过」。
 
 ### 4.2 PH-3 `header()` 假绿复核
 
@@ -141,10 +196,23 @@ podman run --rm -v "$PWD":/w -w /w \
   `double-free`。改为 `double-free|use-after-free`，**仍要求进程非 0 退出**，检测强度不变。
 - 影响：这是测试运行方式与报告名匹配的修正，不放宽任何判据；修正提交见 §6。
 
-### 4.5 tag 与推送：按用户指令不执行
+### 4.5 tag 与推送：2026-11-15 用户授权后已执行
 
-- `git tag` 为空；`g8-tag` 打印 `v0.1.0 not created (deviation V-002)`。
-- 该偏离在 `AGENTS.md` §0.3 有日期、条款、理由、收敛动作与用户指令出处；不是「跳过」。
+- 收口当时（§4.5 原文）确实未打 tag：`git tag` 为空，`g8-tag` 打印
+  `v0.1.0 not created (deviation V-002)`；偏离登记在 `AGENTS.md` §0.3。
+- **2026-11-15 用户授权执行**，事实如下：
+  - tag：`v0.1.0`，annotated（`git cat-file -t` = `tag`），tag 对象 `610d9f9`，
+    指向提交 `b4b7b43`（打 tag 当时的 HEAD）。
+  - 推送：`41ae95e..b4b7b43 main -> main`，`* [new tag] v0.1.0 -> v0.1.0`；
+    远端复核 `git ls-remote origin refs/heads/main refs/tags/v0.1.0` 命中两者。
+  - 推送前核对：`origin/main` 是本地 `main` 的祖先（`git merge-base --is-ancestor` 退出 0），
+    无分叉；待推 120 个提交，改动只落在 `http/`、`test/`、`tools/`、`docs/`、`issues/`
+    与四个根文件（`AGENTS.md`、`CHANGELOG.md`、`README.md`、`src/README.md` 的删除）。
+- **与冻结判据的冲突**：E-P10-5 冻结文本写「tag 只出提案」，本次授权覆盖了该条。
+  冻结原文不动（g1 的 `criteria-sha256` 不变），以本节作为授权记录。
+- **tag 与 HEAD 的落差**：此后 HEAD 前进到 `be58548`（工程规范 1.10.0）与本次文档收口，
+  `g8-tag`（tag 必须指向 HEAD）与 `g4-version`（HEAD 必须被 `v0.1.0` 标记）都不再成立，
+  两道判红。已发布 tag 不移动、不改写；挂账与收敛条件见 §4.7。
 
 ### 4.6 工作区遗留改动的归位（2026-11-15）
 
@@ -155,15 +223,33 @@ podman run --rm -v "$PWD":/w -w /w \
     照原样提交会把一句过期理由写进包清单。
   - 理由二：`docs/requirements.md` 把 `requires=ct >= 0.34.0` 列为验收判据，
     改数字属于改判据，不属于「归位」。
-  - 处置：四处改动**保留在工作区、未提交**，也没有擅自 `git checkout --` 丢弃。
-    要抬下限，应按当前实测环境另出一份判据变更；要丢弃，需明确授权。
+  - 判定：**弃用**——不提交、不抬下限，四处改动不代表现行事实。
+  - 清理方式：`git checkout -- ct.pkg docs/design.md docs/requirements.md docs/phases/H1.md`
+    （只回退这四个文件的这一处 hunk；`docs/design.md` 本轮无其它改动）。
+  - 阻塞原因：该命令属破坏性操作，被权限层拒绝（工具返回「不允许重置/回退」），未绕过。
+    因此四处改动目前仍留在工作区，等明确授权后再执行上面的清理。
+  - 要抬下限：不算「归位」，应按当前实测环境另出判据变更（新 phase 或 errata）。
 - **已归档**：`docs/review/` 下三篇未跟踪草稿收进 `docs/reviews/spec-review/`；
   两篇超过 300 行的按小节边界拆为 `part2` / `part3`，正文未改，只补来源说明；
   源草稿按「不要删」保留在原处。
-- **tag 状态**：§4.5 记的是收口当时的事实（未打 tag）。2026-11-15 用户已授权打 `v0.1.0`
-  并推分支；推送后的状态更新与 Linux 清单一起留在工作区，未提交。
+- **入库**：本节、§4.1 的四步清单、§4.5 的 tag 记录与 `AGENTS.md` 的 V-002 更新，
+  随本次文档收口提交入库（此前因「tag 之后的提交会让 g8 红」而暂留工作区，现已落库，
+  门禁影响见 §4.7）。
 
-## 5. tag 提案（不执行）
+### 4.7 挂账（与已发布 tag 冲突，不硬改历史）
+
+- `g8-tag` / `g4-version`：`v0.1.0` 指向 `b4b7b43`，HEAD 已到本次文档收口提交，两道门禁判红
+  （`g8-tag: … not HEAD`；`g4-version: HEAD is not tagged v0.1.0`）。这个红从 `be58548`
+  （工程规范 1.10.0）起就存在，不是本次文档改动引入。
+  - 不改的原因：移动已推送的 tag 等于改写发布对象，本地与远端都会分叉；用户明确不硬改历史。
+  - 收敛条件：下一次发版打新 tag（0.2.0）后自然转绿。期间该红如实保留，
+    不用 `--no-verify`、不改门禁逻辑来掩盖。
+- 四处 `requires` 改动：判定弃用但未能执行清理（权限层拦截 `git checkout --`），
+  挂「待授权清理」，命令见 §4.6。
+- Linux 半边：`E-P10-1` 记 `UNVERIFIED（待环境）`，`issues/HTTP-3.md` 保持 `open`，
+  属环境缺口而非工作量缺口。
+
+## 5. tag 提案（收口时为提案，2026-11-15 已授权执行）
 
 ```console
 git tag -a v0.1.0 -m "PH-10 <收口提交 sha 前 7 位>" <收口提交>
@@ -172,7 +258,8 @@ git rev-parse v0.1.0^{commit}               # 期望等于收口提交
 git push origin v0.1.0                      # 用户授权后
 ```
 
-四项（名称带 `v`、annotated、指向收口提交、提交可在远端追溯）全过才推；本轮四项都不做。
+四项（名称带 `v`、annotated、指向收口提交、提交可在远端追溯）全过才推。
+收口当时四项都没做；2026-11-15 用户授权后按此执行，结果见 §4.5。
 
 ## 6. 本轮提交
 
@@ -188,5 +275,6 @@ git push origin v0.1.0                      # 用户授权后
 上游勘误提交（PH-9 收口修正）：`docs/errata.md` 的 `ERR-001`，PH-9 卡片原文与
 「不计通过」记录均未改动。
 
-收口提交本身也在 g8 的统计范围内，因此 §3 的数字是收口提交后的复跑值；此后如再追加
-纯文档提交（仅修正本文件的数字），`g8` 的 in-scope 计数会随之增加，判定仍为绿。
+收口提交本身也在 g8 的统计范围内，因此 §3 的数字是收口提交后的复跑值。此后追加的纯文档
+提交会让 in-scope 计数增加，这部分仍判绿；但 `g8-tag` 因 HEAD 已离开 `v0.1.0` 而转红，
+原因与收敛条件见 §4.7。
