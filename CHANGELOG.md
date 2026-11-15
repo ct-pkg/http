@@ -1,7 +1,18 @@
 # Changelog
 
 本项目从 0.1.0 起记录。版本号规则见 `AGENTS.md` 6.7：MINOR 与 phase 对应、PATCH 与 fix 对应；
-本号段（0.1.0）按 `deviation: V-001` 冻结，不随 phase 或 fix 移动。
+0.1.0 号段按 `deviation: V-001` 冻结；自 0.2.0 起解除冻结，偏移 `d = 9` 永久保留。
+
+## [0.2.0] - 2026-11-15
+
+PH-11 发布相（无新增功能面）：
+
+- 编译器下限：`requires = ct >= 0.53.1`。依据是安装接口——`ct install` 必须打印
+  `ct build -I vendor/http …`；`ct v0.49.0` 仍打印 `ct-ast build`，安装样例失败。
+  旧的下限理由（`impl T { static T *new(); }`，0.34.0）已随公开面改为 `map trait` 失效。
+- `applies-to` 全量同步：19 个用户面文档统一为 `0.2.0`。
+- 标签口径：annotated `v0.2.0` 指向收口提交并按 V-7 四项校验；`v0.1.0` 不移动。
+- 版本号随 PH-11 收口移动到 `0.2.0`（MINOR=2，`deviation: V-001` 的 `d = 9`），PATCH 归零。
 
 ## [0.1.0] - 2026-11-15
 

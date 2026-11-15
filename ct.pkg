@@ -13,7 +13,7 @@
 # path documented in README fails there; v0.53.1 is the release this package is
 # verified against (test/gates/p10_install.sh prints `install ok` and `200`).
 name = http
-version = 0.1.0
+version = 0.2.0
 licence = MIT
 ldflags = -lcurl
 requires = ct >= 0.53.1
