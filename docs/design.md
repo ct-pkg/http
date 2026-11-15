@@ -1,6 +1,6 @@
 # http 模块设计（libcurl easy handle，OO）
 
-- applies-to: 0.1.0
+- applies-to: 0.2.0
 - 日期：2026-11-13
 - 状态：骨架期设计。**本仓尚未实现任何 libcurl 调用**；H1 只做骨架、配置与 Drop。
 - 目标包：`http`（仓库 `ct-pkg/http`，本地检出 `/Users/samxx/trae-ws/ct-http`）

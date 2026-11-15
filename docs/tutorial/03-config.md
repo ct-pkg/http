@@ -1,6 +1,6 @@
 # 03 配置面与默认值
 
-- applies-to: 0.1.0
+- applies-to: 0.2.0
 
 所有 setter 返回同一个 `CRequest *`，链式与变量落点两种写法等价。
 

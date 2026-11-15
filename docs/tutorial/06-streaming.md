@@ -1,6 +1,6 @@
 # 06 流式与慢流保护
 
-- applies-to: 0.1.0
+- applies-to: 0.2.0
 
 `send_stream(cb, ud)` 按到达顺序交付响应体，不回填 `body()`：
 

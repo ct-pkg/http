@@ -1,6 +1,6 @@
 # 08 重定向与安全策略
 
-- applies-to: 0.1.0
+- applies-to: 0.2.0
 
 默认不跟随：`follow_redirects(0)` 时 3xx 原样返回（`status()==302`、`error()==0`、
 `is_ok()==0`），只发 1 个请求。

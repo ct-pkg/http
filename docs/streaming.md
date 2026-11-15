@@ -1,6 +1,6 @@
 # 流式响应与响应体上限（phase 7）
 
-- applies-to: 0.1.0
+- applies-to: 0.2.0
 - 版本：0.1.0
 - 对应判据：F-18、F-03；卡片 [docs/phases/PH-7/card.md](phases/PH-7/card.md)
 - 本文补充 [README.md](../README.md) 的「流式（phase 7）」，不重复错误面与超时面。

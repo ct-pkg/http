@@ -1,6 +1,6 @@
 # 验收映射（R-* → ACC-*）
 
-- applies-to: 0.1.0
+- applies-to: 0.2.0
 
 每个需求（`docs/requirements.md` 的 `R-nn`）至少映射到一条 `ACC-*`；每条 `ACC-*` 的锚点
 必须是仓库里真能跑的东西：一个已接线的夹具、一道门禁、或 `test/gates/` 下的脚本。

@@ -1,6 +1,6 @@
 # 10 构建、接口约定与释放
 
-- applies-to: 0.1.0
+- applies-to: 0.2.0
 
 <!-- snippet: docs/snippets/build.sh -->
 ```text
