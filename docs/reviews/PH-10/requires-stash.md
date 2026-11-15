@@ -94,9 +94,11 @@ index c880c69..6259c14 100644
 ```console
 $ git stash list
 stash@{0}: On main: requires 清理
+$ git stash drop
+Dropped refs/stash@{0} (1983edff3f243f3fca184255cc59f2f84c9134ff)
+$ git stash list
+（无输出，stash 列表为空）
 ```
-
-（drop 与 drop 后的 `git stash list` 输出在执行后回填。）
 
 原 stash 内容以本文件 §3 全文保留；如需复现，可按 patch 手工 apply 到 `937c05d` 的工作树，
 但**不应**在现行树上应用（见 §2 第 3 条）。
