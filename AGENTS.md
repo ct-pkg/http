@@ -261,9 +261,9 @@ AI_ENGINEERING_SPEC=<主规范路径> ...          # 覆盖默认主规范位置
 | --- | --- |
 | 对话清单 | 需求池 / 技术池 / 评审三类常驻对话；phase 对话按 9.3 命名：`[ct-http] H<n> · <目标一句话>` |
 | 任务-对话映射 | [docs/session-map.md](docs/session-map.md) |
-| 门禁入口 | `tools/check.sh`（当前实现 g0；g1–g9 未接线，脚本对未实现的子命令退出 2） |
-| 文档 snippet | 未建（`docs/snippets/` 待 H1 收口后建） |
-| Issue 台账 | 未建（`issues/<id>.md`，前缀 `HTTP-<n>`） |
+| 门禁入口 | `tools/check.sh`（g0–g9 全部实现；未接线的子命令退出 2） |
+| 文档 snippet | `docs/snippets/`（README 与 `docs/tutorial/` 的代码块唯一来源） |
+| Issue 台账 | `issues/HTTP-<n>.md` |
 | 决策记录 | [docs/design.md](docs/design.md)（D-1 起编号；需要独立文件时建 `docs/decisions/`） |
 | 版本落点 | `ct.pkg#version`、`README.md` 的「版本」行（两处，同一提交内必须一致） |
 | 偏离项 | 无（见 0.3） |
@@ -281,7 +281,22 @@ AI_ENGINEERING_SPEC=<主规范路径> ...          # 覆盖默认主规范位置
 
 ### 0.3 偏离项
 
-无。
+    deviation: V-001
+      日期: 2026-11-15
+      条款: 6.7 V-1/V-3（产品版本号）
+      现状: 版本固定 0.1.0（MINOR=1、PATCH=0），不随 PH-<n> 或 fix 移动
+      偏移: d = 9
+      理由: 0.1.0 是未发布的首个版本，roadmap E-P10-5 指定收口版本为 0.1.0；追溯改写会动到已冻结的版本落点
+      收敛: 发布 0.2.0 时恢复 V-1：MINOR 跟随下一个 phase 号、PATCH 归零；PATCH 对账从该版本起生效
+      签字: 用户 2026-11-15（PH-10 收口版本保持 0.1.0；roadmap E-P10-5）
+
+    deviation: V-002
+      日期: 2026-11-15
+      条款: 6.7 V-7（phase 收口 tag 与推送）
+      现状: PH-10 收口只做本地提交，不打 tag、不 push
+      理由: 用户 2026-11-15 指令「只本地提交，不 push、不打 tag」
+      收敛: 用户授权后执行 `git tag -a v0.1.0 -m "PH-10 <sha>"`，按 V-7 四项校验后推送
+      签字: 用户 2026-11-15（同上指令）
 
 有偏离时逐条按下列字段写，字段缺一不算登记：
 
