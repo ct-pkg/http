@@ -27,3 +27,17 @@ E-P10-1 要求 macOS 与 Linux 的全量夹具都 0 失败。本机是 macOS arm
 
 具备容器运行时与 Linux `ct` 后，按收口 §4.1 的命令在容器内跑 `bash tools/check.sh g3`，
 `uname -s` 为 `Linux` 且退出 0 时关闭本条并重判 E-P10-1。
+
+2026-11-16 复核（Podman，仍未关闭）：
+
+- 运行时：`podman 6.2.0`（`/opt/homebrew/bin/podman`），`podman machine init` 成功，VM 为 libkrun，
+  `uname` 返回 `Linux … aarch64`；VM 数据在 `/tmp/poddata`（7.8G，一次性验证物）。
+- 起机不稳：`podman machine start` 常报 `krunkit exited unexpectedly with exit code 1`，同一 shell 内重试可起；
+  启动会话结束后 VM 退出，跨命令 `podman run` 报 `dial tcp 127.0.0.1:63338: connect: connection refused`。
+- 镜像源：`docker.io` → `connect: connection refused`；`mirror.gcr.io` → `i/o timeout`；
+  `quay.io` / `ghcr.io` 可达（401），`registry.fedoraproject.org` 返回 200。
+- 已用 `quay.io/fedora/fedora:42` 起容器；容器内 `dnf install` 停滞
+  （`rchar` 8 秒无增长，18 分钟未装上 `gcc`），无法自举 Linux 版 `ct`，`g3` 未执行。
+
+结论：缺口从“没有容器运行时”变为“容器内包源不可达”，`status` 仍为 `open`；
+E-P10-1 继续记“不计通过”，不把没跑的写成通过。

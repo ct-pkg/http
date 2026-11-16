@@ -149,6 +149,19 @@ done
 } 2>&1 | tee /tmp/p10-linux-g3.log
 ```
 
+**2026-11-16 复核（Podman）**：容器运行时已装上（`podman 6.2.0`，libkrun VM），但仍未跑成，原因从“无容器”变成“包源不可达”：
+
+- `podman machine init` 成功（VM 落在 `/tmp/poddata`，7.8G），`uname` 拿到 `Linux … aarch64`。
+- `podman machine start` 常报 `Error: krunkit exited unexpectedly with exit code 1`，需在同一 shell 内重试；
+  VM 随启动会话退出，跨命令再 `podman run` 报 `dial tcp 127.0.0.1:63338: connect: connection refused`。
+- 镜像源：`docker.io` → `connection refused`；`mirror.gcr.io` → `i/o timeout`；
+  `quay.io` / `ghcr.io` 可达（401 为鉴权语义），`registry.fedoraproject.org` 返回 200。
+- 用 `quay.io/fedora/fedora:42` 已能起容器；但容器内 `dnf install` 下载停滞
+  （`/proc/<pid>/io` 的 `rchar` 8 秒无增长，18 分钟未装到 `gcc`），无法自举 `ct`。
+
+结论不变：E-P10-1 的 Linux 半边仍**不计通过**，本条继续挂在 `issues/HTTP-3.md`。
+补齐条件：容器内能装上 `build-essential`（或等价的 gcc + libcurl 开发包），再按第 2–4 步执行。
+
 - 必须留的片段：`uname -a`（`Linux … aarch64`）、`cc --version` 首行、`ct -v`、
   `ok g3 (…)` 汇总行、`g3 rc=0`。
 - 通过判据：容器内 `uname -s` = `Linux` 且 `bash tools/check.sh g3` 退出 0；两者缺一不记通过。
