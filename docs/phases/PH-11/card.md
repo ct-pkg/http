@@ -4,7 +4,7 @@
 - phase 目录：`docs/phases/PH-11/`
 - version-minor：11
 - 规范版本：1.10.0（开卡时 `AGENTS.md` 生成块头快照）
-- 状态：开工（2026-11-15，卡已冻结）
+- 状态：已收口（2026-11-15 打 `v0.2.0`；2026-11-16 以 `v0.2.1` 重发含 `publisher`/`ns-root` 的清单，tag 指向 `1121bbc`）
 - criteria-sha256：554150b31eb3966d6cbf7799491cea46f9649b06413178960b0d62e0c1cfba90
 - tasks-sha256：799fd6d01a067f49d4e2a1a89a08ee0e4d14d8d4203dfd080093277fcc130884
 
