@@ -1,3 +1,15 @@
+/* Strict ISO mode (-std=c99) hides MAP_ANONYMOUS and kill(2) on glibc;
+ * ask for the POSIX/BSD surface before any header is pulled in. macOS keeps
+ * its default namespace: the macros would hide MAP_ANON / INADDR_LOOPBACK. */
+#ifndef __APPLE__
+#ifndef _DEFAULT_SOURCE
+#define _DEFAULT_SOURCE
+#endif
+#ifndef _POSIX_C_SOURCE
+#define _POSIX_C_SOURCE 200809L
+#endif
+#endif
+
 #include "p4-server.h"
 
 #include <arpa/inet.h>

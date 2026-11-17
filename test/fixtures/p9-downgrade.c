@@ -1,3 +1,14 @@
+/* Strict ISO mode (-std=c99) hides kill(2) on glibc. macOS keeps its default
+ * namespace: the macros would hide MAP_ANON / INADDR_LOOPBACK. */
+#ifndef __APPLE__
+#ifndef _DEFAULT_SOURCE
+#define _DEFAULT_SOURCE
+#endif
+#ifndef _POSIX_C_SOURCE
+#define _POSIX_C_SOURCE 200809L
+#endif
+#endif
+
 #include "http.shim.h"
 #include "p9-server.h"
 
