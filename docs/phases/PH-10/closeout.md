@@ -3,21 +3,21 @@
 - 日期：2026-11-15
 - 卡片：[card.md](card.md)（判据与任务已冻结）
 - 基线：`67c5b2f`（逐任务红证见 `docs/reviews/PH-10/T1.md`…`T9.md`）
-- 结论：**E-P10-1 不计通过**（Linux 半边不可执行）；E-P10-2…E-P10-5 通过。
+- 结论：**E-P10-1 通过**（2026-11-17 补跑 Linux 半边：容器内 `g3 rc=0`）；E-P10-2…E-P10-5 通过。
   g0–g9 十道门禁全部真跑、全部退出 0，且 g0–g9 各有副本负例。
 
 ## 1. 退出判据逐条
 
 | ID | 结果 | 原始输出（节选） |
 | --- | --- | --- |
-| E-P10-1 | **不计通过** | macOS：`ok g3 (… 55 个夹具 …)`，`rc=0`。Linux：`command -v podman` / `command -v docker` 均 `rc=1`，无容器；缺 Linux `ct` 二进制。见 §4.1 |
+| E-P10-1 | **通过** | macOS：`ok g3 (… 55 个夹具 …)`，`rc=0`。Linux（2026-11-17，Podman + `gcc:13`）：自举 `ct v0.61.1`，`ok g3 (…)`、`g3 rc=0`；配方见 `docs/reviews/PH-10/E-P10-1-linux.md` |
 | E-P10-2 | 通过 | 十道门禁逐条 `rc=0`，见 §3 |
 | E-P10-3 | 通过 | `ok g4 (120 docs <= 300 lines, 8 snippets compiled, 13 blocks bound, anchors/applies/readme/version ok)`，`rc=0`；`g4_negative.sh` 打印 `rejected snippet/impl-chain`，`rc=0` |
 | E-P10-4 | 通过（卡内本地形态） | `bash test/gates/p10_install.sh` → `install ok` / `200`，`rc=0`；roadmap 裸名形态不可执行，见 §4.3 |
 | E-P10-5 | 通过 | `ok g4 (… version ok)`，`rc=0`；`ct.pkg#version` 与 README 版本行均为 `0.1.0`，CHANGELOG 首条一致；`git tag` 为空，提案见 §5 |
 
-E-P10-1 的 macOS 半边达成、Linux 半边不可执行，按「达不成的逐条列出、不计通过」整条不计通过；
-不把「没跑」写成「跳过即通过」。
+E-P10-1 在 2026-11-15 只有 macOS 半边可执行，按「达不成的逐条列出、不计通过」整条不计通过；
+2026-11-17 容器内补跑通过后改判为通过，证据与配方见 §4.1 与 `docs/reviews/PH-10/E-P10-1-linux.md`。
 
 ## 2. 任务对照
 
@@ -90,7 +90,8 @@ $ bash test/gates/g9_negative.sh  → rejected pin/forged             rc=0
 - Linux 版 `ct` 的来源：ct-lang 没有发布 Linux 预编译二进制，只发 tag；`install.sh` 从源码自举
   L0（C seed）→ L1 → L2 → ct-ast，要求 `cc` 与 `tar`。因此容器里能自己造出来，
    **不构成额外阻塞**；唯一缺的是容器运行时，由用户安装。
-- 状态：`E-P10-1` 的 Linux 半边记 **`UNVERIFIED（待环境）`**，不计通过；macOS 半边已完成。
+- 状态：`E-P10-1` 的 Linux 半边在 2026-11-17 通过容器补跑（`g3 rc=0`），整条改判 **通过**；
+  配方与原始输出见 `docs/reviews/PH-10/E-P10-1-linux.md`。以下四步保留作历史与复用。
 
 容器运行时到位后，按下列四步执行（在仓库根，主机 shell）：
 
@@ -156,11 +157,17 @@ done
   VM 随启动会话退出，跨命令再 `podman run` 报 `dial tcp 127.0.0.1:63338: connect: connection refused`。
 - 镜像源：`docker.io` → `connection refused`；`mirror.gcr.io` → `i/o timeout`；
   `quay.io` / `ghcr.io` 可达（401 为鉴权语义），`registry.fedoraproject.org` 返回 200。
-- 用 `quay.io/fedora/fedora:42` 已能起容器；但容器内 `dnf install` 下载停滞
-  （`/proc/<pid>/io` 的 `rchar` 8 秒无增长，18 分钟未装到 `gcc`），无法自举 `ct`。
+- 用 `quay.io/fedora/fedora:42` 已能起容器；但 `dnf install` 下载停滞（`/proc/<pid>/io` 的 `rchar` 8 秒无增长，18 分钟未装到 `gcc`）。
 
-结论不变：E-P10-1 的 Linux 半边仍**不计通过**，本条继续挂在 `issues/HTTP-3.md`。
-补齐条件：容器内能装上 `build-essential`（或等价的 gcc + libcurl 开发包），再按第 2–4 步执行。
+结论：E-P10-1 的 Linux 半边已于 2026-11-17 补跑通过，本条关闭（`issues/HTTP-3.md` → `verified`）。
+
+**2026-11-17 补跑（通过）**：
+
+- VM：`podman 6.2.0`，`podman info` 返回 `linux`，跨命令可用；容器 `docker.io/library/gcc:13`。
+- 自举：`CT_SOURCE_DIR=/src sh /src/install.sh -p /usr/local/bin` → `ct v0.61.1`。
+- 结果：`bash tools/check.sh g3` 输出 55 行 `ok`，末行 `g3 rc=0`。
+- 顺带修掉三处夹具在严格 C99 下缺特性测试宏的问题（`p4-server.c`、`p9-server.c`、`p9-downgrade.c`），
+  macOS 与 Linux 复跑均为 0 失败。
 
 - 必须留的片段：`uname -a`（`Linux … aarch64`）、`cc --version` 首行、`ct -v`、
   `ok g3 (…)` 汇总行、`g3 rc=0`。
@@ -259,7 +266,7 @@ done
     不用 `--no-verify`、不改门禁逻辑来掩盖。
 - 四处 `requires` 改动：判定弃用但未能执行清理（权限层拦截 `git checkout --`），
   挂「待授权清理」，命令见 §4.6。
-- Linux 半边：`E-P10-1` 记 `UNVERIFIED（待环境）`，`issues/HTTP-3.md` 保持 `open`，
+- Linux 半边：`E-P10-1` 于 2026-11-17 在容器内补跑通过（`g3 rc=0`），`issues/HTTP-3.md` → `verified`，
   属环境缺口而非工作量缺口。
 
 ## 5. tag 提案（收口时为提案，2026-11-15 已授权执行）

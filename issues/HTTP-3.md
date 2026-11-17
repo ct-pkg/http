@@ -1,7 +1,7 @@
 # HTTP-3 E-P10-1 的 Linux 半边不可执行
 
-- status: open
-- 证据: `docs/phases/PH-10/closeout.md` §4.1；`uname -a`；`command -v podman` / `command -v docker` 均退出 1
+- status: verified
+- 证据: `docs/reviews/PH-10/E-P10-1-linux.md`（镜像、源、命令、`ct v0.61.1`）；容器内 `ok g3 (…)`、`g3 rc=0`；`docs/phases/PH-10/closeout.md` §4.1
 - phase: PH-10
 - fix: no
 
@@ -41,3 +41,15 @@ E-P10-1 要求 macOS 与 Linux 的全量夹具都 0 失败。本机是 macOS arm
 
 结论：缺口从“没有容器运行时”变为“容器内包源不可达”，`status` 仍为 `open`；
 E-P10-1 继续记“不计通过”，不把没跑的写成通过。
+
+## 关闭（2026-11-17）
+
+环境已补齐，Linux 半边真跑通过：
+
+- VM：`podman 6.2.0`，`podman info` 返回 `linux`，跨命令可用；容器 `docker.io/library/gcc:13`
+  （`cc (GCC) 13.5.0`，自带 `libcurl` 开发头；预置的 `ct-ci:*` 镜像缺 `curl/curl.h`）。
+- 自举：`CT_SOURCE_DIR=/src sh /src/install.sh -p /usr/local/bin` → `ct v0.61.1`。
+- 结果：容器内 `bash tools/check.sh g3` → 55 行 `ok`，末行 `g3 rc=0`；ASAN 两个用例同样通过。
+- 顺带修掉三处夹具在 `-std=c99` 下缺 `_DEFAULT_SOURCE`/`_POSIX_C_SOURCE` 的问题。
+- 可复跑配方：`docs/reviews/PH-10/E-P10-1-linux.md`（ct-fsguard R-17 可照抄）。
+- E-P10-1 由“不计通过”改判为**通过**（`docs/phases/PH-10/closeout.md` §4.1）。
